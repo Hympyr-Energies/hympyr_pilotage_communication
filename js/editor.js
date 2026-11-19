@@ -74,7 +74,7 @@ function draw() {
           <div class="field full"><span>Cibles</span><div class="tagsel" data-multi="cible">${CIBLES.map(([k, l, g]) => `<button type="button" data-v="${k}" class="${(d.cible || []).includes(k) ? 'on' : ''}" title="${g === 'interne' ? 'Interne' : 'Externe'}" ${ro ? 'disabled' : ''}>${l}</button>`).join('')}</div></div>
           ${social ? `<div class="field full"><span>Réseaux de diffusion</span><div class="tagsel" data-multi="reseaux">${RESEAUX.map(([k, l]) => `<button type="button" data-v="${k}" class="${(d.reseaux || []).includes(k) ? 'on' : ''}" ${ro ? 'disabled' : ''}>${l}</button>`).join('')}</div></div>` : ''}
           <label class="field"><span>Date de publication</span><input class="input" type="datetime-local" data-f="date_debut" value="${toLocalInput(c.date_debut)}" ${ro ? 'readonly' : ''}></label>
-          <label class="field"><span>Marque</span><input class="input" value="${esc(BRANDS[c.marque].nom)}" readonly></label>
+          <label class="field"><span>Marque</span><select class="input" data-f="marque" ${ro || c.statut === 'publie' ? 'disabled' : ''}>${BRAND_KEYS.map(b => `<option value="${b}" ${b === c.marque ? 'selected' : ''}>${esc(BRANDS[b].nom)}</option>`).join('')}</select></label>
         </div>
       </div>
       <div class="panel glass" data-st>
@@ -160,6 +160,7 @@ function onInput(e) {
   if (t.id === 'edText') { d.textes[E.net] = t.value; changed(); return; }
   if (t.dataset.vis != null) { d.visuels[+t.dataset.vis][t.dataset.k] = t.value; if (t.dataset.k === 'alt') t.classList.toggle('bad', !t.value.trim()); changed(); return; }
   const f = t.dataset.f; if (!f || e.type === 'input' && (t.tagName === 'SELECT' || t.type === 'checkbox')) return;
+  if (f === 'marque') { if (e.type === 'change') changeBrand(t.value, t); return; }
   if (f === 'titre') c.titre = t.value;
   else if (f === 'date_debut') c.date_debut = fromLocalInput(t.value);
   else if (f === 'type') { const was = isSocial(c); d.type = t.value; if (was !== isSocial(c)) { if (!isSocial(c)) { d.textes.principal = d.textes.principal || d.textes.linkedin || ''; E.net = 'principal'; } else { d.textes.linkedin = d.textes.linkedin || d.textes.principal || ''; E.net = (d.reseaux || ['linkedin'])[0]; } changed(); draw(); return; } if (typeFamily(d.type) === 'interne' && !(d.cible || []).some(x => ['salaries', 'chauffeurs', 'direction'].includes(x))) d.cible = ['salaries']; changed(); draw(); return; }
@@ -170,6 +171,21 @@ function onInput(e) {
   else if (f === 'total' || f === 'lus') d.interne[f] = Math.max(0, +t.value || 0);
   else if (f === 'mentions_ok') d.mentions_ok = t.checked;
   changed();
+}
+async function changeBrand(to, sel) {
+  const c = E.c, from = c.marque; if (to === from) return;
+  if (!c.titre.trim()) { sel.value = from; toast('Ajoutez un titre avant de changer de marque', 'alert'); $('[data-f="titre"]', E.el).focus(); return; }
+  const ok = await confirmBox(`Déplacer vers ${BRANDS[to].nom} ?`, `Le contenu quitte ${BRANDS[from].nom} et rejoint le calendrier de ${BRANDS[to].nom}. Texte, étape et date sont conservés.`, { ok: 'Changer de marque' });
+  if (!ok) { sel.value = from; return; }
+  clearTimeout(saveT);
+  c.marque = to;
+  const camp = c.data.campagne_id ? getItem(c.data.campagne_id) : null;
+  if (camp && (camp.data.marques || []).length && !camp.data.marques.includes(to)) c.data.campagne_id = '';
+  const s = await persist({ force: true });
+  if (!s) { c.marque = from; sel.value = from; return; }
+  await addJournal(s.id, 'action', `Marque changée : ${BRANDS[from].nom} vers ${BRANDS[to].nom}`);
+  toast(`Contenu déplacé vers ${BRANDS[to].nom}`, 'check');
+  E.ctx.go(to, 'creer', null, { id: s.id });
 }
 function onClick(e) {
   const c = E.c, d = c.data;

@@ -91,16 +91,35 @@ export function renderDashboard(el, ctx) {
   const ni = $('#newIdea', el); if (ni) ni.onclick = () => quickIdea(ctx);
 }
 export function quickIdea(ctx, preset = {}) {
-  const { el, close } = modal(`<div class="modal-head"><div><span class="label">Réservoir</span><h2 style="margin-top:6px">Noter une idée</h2></div><button class="icon-btn" data-close aria-label="Fermer">${ic('x')}</button></div>
-    <div class="form"><label class="field"><span>Idée</span><input class="input" id="qiT" maxlength="120" placeholder="Ex. Portrait d'un chauffeur de nuit" value="${esc(preset.titre || '')}"></label>
+  let count = 0, busy = false;
+  const { el, close } = modal(`<div class="modal-head"><div><span class="label">Réservoir</span><h2 style="margin-top:6px">Noter une idée</h2><p id="qiCount">Enchaînez les idées sans quitter cette fenêtre.</p></div><button class="icon-btn" data-close aria-label="Fermer">${ic('x')}</button></div>
+    <div class="form" id="qiForm"><label class="field"><span>Idée</span><input class="input" id="qiT" maxlength="120" placeholder="Ex. Portrait d'un chauffeur de nuit" value="${esc(preset.titre || '')}"></label>
     <label class="field"><span>Marque</span><select class="input" id="qiM">${BRAND_KEYS.map(b => `<option value="${b}" ${b === (preset.marque || (ctx.univ !== 'groupe' ? ctx.univ : 'energies')) ? 'selected' : ''}>${BRANDS[b].nom}</option>`).join('')}</select></label>
     <label class="field"><span>Notes <em>(facultatif)</em></span><textarea class="input" id="qiN" style="min-height:80px">${esc(preset.notes || '')}</textarea></label></div>
-    <div class="modal-foot"><button class="btn ghost" data-close>Annuler</button><button class="btn mag" id="qiGo">Enregistrer l'idée</button></div>`);
-  $('#qiGo', el).onclick = async () => {
-    const t = $('#qiT', el); if (!t.value.trim()) { t.classList.add('bad'); t.focus(); return; }
-    const s = await saveItem({ kind: 'contenu', marque: $('#qiM', el).value, titre: t.value.trim(), statut: preset.statut || 'idee', parent_id: preset.parent_id || null, data: { type: 'publication', cible: ['professionnels'], objectif: 'pedagogique', reseaux: ['linkedin'], textes: { linkedin: $('#qiN', el).value, instagram: '', principal: '' }, hashtags: [], visuels: [], utm: true } });
-    await addJournal(s.id, 'action', 'Idée notée'); close(); toast('Idée enregistrée', 'idea'); ctx.refresh();
+    <div class="modal-foot"><button class="btn ghost" data-close>Fermer</button><button class="btn ghost mag" id="qiNext">${ic('plus')}Prochaine idée</button><button class="btn mag" id="qiGo">Enregistrer l'idée</button></div>`,
+    { onClose: () => { if (count) ctx.refresh(true); } });
+  const save = async () => {
+    const t = $('#qiT', el); if (!t.value.trim()) { t.classList.add('bad'); t.focus(); return false; }
+    if (busy) return false; busy = true;
+    try {
+      const s = await saveItem({ kind: 'contenu', marque: $('#qiM', el).value, titre: t.value.trim(), statut: preset.statut || 'idee', parent_id: preset.parent_id || null, data: { type: 'publication', cible: ['professionnels'], objectif: 'pedagogique', reseaux: ['linkedin'], textes: { linkedin: $('#qiN', el).value, instagram: '', principal: '' }, hashtags: [], visuels: [], utm: true } });
+      await addJournal(s.id, 'action', 'Idée notée'); count++; return true;
+    } catch (e) { return false; } finally { busy = false; }
   };
+  $('#qiT', el).addEventListener('input', e => e.target.classList.remove('bad'));
+  $('#qiGo', el).onclick = async () => { if (await save()) { toast(count > 1 ? `${count} idées enregistrées` : 'Idée enregistrée', 'idea'); close(); } };
+  $('#qiNext', el).onclick = async () => {
+    if (!await save()) return;
+    const f = $('#qiForm', el);
+    await f.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(-14px)' }], { duration: 180, easing: 'cubic-bezier(.4,0,1,1)', fill: 'forwards' }).done;
+    $('#qiT', el).value = ''; $('#qiN', el).value = '';
+    f.getAnimations().forEach(a => a.cancel());
+    f.animate([{ opacity: 0, transform: 'translateX(14px)' }, { opacity: 1, transform: 'none' }], { duration: 380, easing: 'cubic-bezier(.22,1,.36,1)' });
+    const c = $('#qiCount', el); c.textContent = `${count} idée${count > 1 ? 's' : ''} enregistrée${count > 1 ? 's' : ''}. Notez la suivante.`;
+    c.animate([{ opacity: .3 }, { opacity: 1 }], { duration: 400 });
+    $('#qiT', el).focus();
+  };
+  $('#qiT', el).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#qiNext', el).click(); } });
 }
 
 /* =========================================================
