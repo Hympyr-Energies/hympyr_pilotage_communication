@@ -32,11 +32,25 @@ export const BRANDS = {
 export const BRAND_KEYS = ['groupe', 'energies', 'transport', 'granules'];
 export const SUB_BRANDS = ['energies', 'transport', 'granules'];
 export const STATUTS = [
-  ['idee', 'Idée'], ['a_produire', 'À produire'], ['redaction', 'En rédaction'], ['validation', 'En validation'],
+  ['idee', 'Idée'], ['a_produire', 'À produire'], ['validation', 'En validation'],
   ['a_planifier', 'Validé, à planifier'], ['planifie', 'Planifié'], ['publie', 'Publié'], ['archive', 'Archivé']
 ];
 export const statutLabel = k => (STATUTS.find(s => s[0] === k) || [k, k])[1];
-export const PRE_VALID = ['idee', 'a_produire', 'redaction', 'validation'];
+export const PRE_VALID = ['idee', 'a_produire', 'validation'];
+/* Étape automatique avant validation : une idée devient « À produire » dès qu'une date et une heure de diffusion sont renseignées,
+   et redevient une idée si la date est retirée. L'ancienne étape « En rédaction » est absorbée par « À produire ». */
+export function autoStatut(it) {
+  if (!it || it.kind !== 'contenu') return it && it.statut;
+  const st = it.statut === 'redaction' ? 'a_produire' : it.statut;
+  if (st === 'idee' || st === 'a_produire') return it.date_debut ? 'a_produire' : 'idee';
+  return st;
+}
+/* File d'édition (sélection multiple du tableau) : conservée le temps de la session du navigateur */
+export const editQueue = {
+  get() { try { const q = JSON.parse(sessionStorage.getItem('hc-queue')); return Array.isArray(q) ? q : []; } catch (e) { return []; } },
+  set(ids) { try { sessionStorage.setItem('hc-queue', JSON.stringify(ids)); } catch (e) {} },
+  clear() { try { sessionStorage.removeItem('hc-queue'); } catch (e) {} }
+};
 export const TYPES = [
   ['publication', 'Publication', 'social'], ['carrousel', 'Carrousel', 'social'], ['video', 'Vidéo', 'social'], ['story', 'Story', 'social'], ['reel', 'Reel', 'social'],
   ['article', 'Article de site', 'web'], ['newsletter', 'Newsletter', 'web'], ['communique', 'Communiqué de presse', 'presse'],
@@ -101,6 +115,8 @@ export const I = {
   refresh: '<path d="M20 11a8 8 0 0 0-14.3-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.5L20 16M20 20v-4h-4"/>',
   heart: '<path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z"/>',
   linkedin: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 10v7M8 7v.01M12 17v-4a2 2 0 0 1 4 0v4M12 10v7"/>',
+  more: '<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>',
+  select: '<rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 3 3 5-6"/>',
   instagram: '<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><path d="M17.5 6.5h.01"/>'
 };
 export const ic = (n, c = 'i') => `<svg class="${c}" viewBox="0 0 24 24" aria-hidden="true">${I[n] || ''}</svg>`;
@@ -152,9 +168,9 @@ export async function loadAll() {
   S.members = m.data || [];
   S.loaded = true; emit();
 }
-function normalize(it) { it.data = it.data || {}; return it; }
+function normalize(it) { it.data = it.data || {}; if (it.kind === 'contenu' && it.statut === 'redaction') it.statut = 'a_produire'; return it; }
 export async function saveItem(item, { silent } = {}) {
-  const row = { kind: item.kind, marque: item.marque || null, titre: item.titre || null, statut: item.statut || null, date_debut: item.date_debut || null, date_fin: item.date_fin || null, data: item.data || {}, parent_id: item.parent_id || null };
+  const row = { kind: item.kind, marque: item.marque || null, titre: item.titre || null, statut: autoStatut(item) || null, date_debut: item.date_debut || null, date_fin: item.date_fin || null, data: item.data || {}, parent_id: item.parent_id || null };
   let res;
   if (item.id) res = await sb.from('comm_items').update(row).eq('id', item.id).select().single();
   else res = await sb.from('comm_items').insert(row).select().single();

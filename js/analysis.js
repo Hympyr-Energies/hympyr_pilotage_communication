@@ -1,7 +1,7 @@
 /* =========================================================
    ANALYSIS ENGINE : built-in rules, adjustable levels
    ========================================================= */
-import { esc, settings, byKind, OBJECTIFS } from './core.js?v=5';
+import { esc, settings, byKind, OBJECTIFS } from './core.js?v=6';
 
 export const CRITERES = [
   ['accroche', 'Accroche'], ['clarte', 'Clarté'], ['structure', 'Structure'], ['valeur', 'Valeur'],

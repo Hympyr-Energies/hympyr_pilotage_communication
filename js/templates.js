@@ -8,7 +8,7 @@
 import {
   $, $$, esc, clone, byKind, getItem, saveItem, deleteItem, toast, modal, confirmBox, ic, stagger, seg,
   BRANDS, BRAND_KEYS, TYPES, typeLabel, typeFamily, OBJECTIFS, objLabel, CIBLES, cibleLabel, RESEAUX, canCreate, brandDot
-} from './core.js?v=5';
+} from './core.js?v=6';
 
 const head = (lab, title, p = '', right = '') => `<div class="panel-head"><div><span class="label">${lab}</span><h2 style="margin-top:4px">${title}</h2>${p ? `<p>${p}</p>` : ''}</div>${right}</div>`;
 export const PLACEHOLDER = /\[[^\]\n]{1,80}\]/g;

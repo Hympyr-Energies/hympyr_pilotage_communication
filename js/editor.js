@@ -4,12 +4,12 @@
 import {
   $, $$, esc, clone, S, byKind, getItem, saveItem, deleteItem, addJournal, journal, toast, modal, confirmBox, seg, segSet, ic, swap, animateRings,
   BRANDS, SUB_BRANDS, BRAND_KEYS, TYPES, typeLabel, typeFamily, RESEAUX, OBJECTIFS, objLabel, CIBLES, STATUTS, statutLabel, PRE_VALID,
-  toLocalInput, fromLocalInput, fmtDT, fmtDate, isDirection, canCreate, memberName, settings, ring, stagger, uid, brandDot
-} from './core.js?v=5';
-import { analyse, radarSVG, animateRadar, scoreLabel, CRITERES } from './analysis.js?v=5';
-import { applyTemplate, pickTemplateFor, saveAsTemplate, placeholders } from './templates.js?v=5';
+  toLocalInput, fromLocalInput, fmtDT, fmtDate, isDirection, canCreate, memberName, settings, ring, stagger, uid, brandDot, editQueue
+} from './core.js?v=6';
+import { analyse, radarSVG, animateRadar, scoreLabel, CRITERES } from './analysis.js?v=6';
+import { applyTemplate, pickTemplateFor, saveAsTemplate, placeholders } from './templates.js?v=6';
 
-const blank = marque => ({ kind: 'contenu', marque, titre: '', statut: 'redaction', date_debut: null, data: { type: 'publication', cible: ['professionnels'], objectif: 'pedagogique', reseaux: ['linkedin'], textes: { linkedin: '', instagram: '', principal: '' }, hashtags: [], lien: '', utm: true, visuels: [], campagne_id: '', interne: { canaux: [], lecture: false, lus: 0, total: 0 }, mentions_ok: false } });
+const blank = marque => ({ kind: 'contenu', marque, titre: '', statut: 'idee', date_debut: null, data: { type: 'publication', cible: ['professionnels'], objectif: 'pedagogique', reseaux: ['linkedin'], textes: { linkedin: '', instagram: '', principal: '' }, hashtags: [], lien: '', utm: true, visuels: [], campagne_id: '', interne: { canaux: [], lecture: false, lus: 0, total: 0 }, mentions_ok: false } });
 const slug = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 export const isSocial = c => typeFamily((c.data || {}).type) === 'social';
 export function textFor(c, net) { const t = (c.data || {}).textes || {}; return isSocial(c) ? (t[net] || '') : (t.principal || ''); }
@@ -47,6 +47,7 @@ function draw() {
   const camps = byKind('campagne').filter(x => !x.data.marques || !x.data.marques.length || x.data.marques.includes(c.marque) || c.marque === 'groupe');
   const social = isSocial(c), fam = typeFamily(d.type);
   E.el.innerHTML = `
+  ${queueBar()}
   <div class="panel glass" data-st>
     <div class="ed-top">
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;min-width:0;flex:1">
@@ -63,7 +64,7 @@ function draw() {
     </div>
     ${d.consignes ? `<div class="tile" style="margin-top:14px;padding:12px 14px;border-color:color-mix(in srgb,var(--accent) 45%,transparent)"><span class="label">Consignes du modèle</span><p style="margin-top:4px;font-size:13.5px;white-space:pre-wrap">${esc(d.consignes)}</p></div>` : ''}
     <div id="edPh"></div>
-    ${d.retour && c.statut === 'redaction' ? `<div class="tile" style="margin-top:14px;padding:12px 14px;border-color:color-mix(in srgb,var(--warn) 50%,transparent)"><span class="label" style="color:var(--warn)">Retour de la direction</span><p style="margin-top:4px;font-size:13.5px">${esc(d.retour)}</p></div>` : ''}
+    ${d.retour && c.statut === 'a_produire' ? `<div class="tile" style="margin-top:14px;padding:12px 14px;border-color:color-mix(in srgb,var(--warn) 50%,transparent)"><span class="label" style="color:var(--warn)">Retour de la direction</span><p style="margin-top:4px;font-size:13.5px">${esc(d.retour)}</p></div>` : ''}
   </div>
   <div class="split">
     <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
@@ -127,6 +128,32 @@ function draw() {
   </div>`;
   wire(); refreshSide(true); stagger(E.el);
 }
+/* ---------- file d'édition (sélection du tableau Production) ---------- */
+function queueInfo() {
+  const q = editQueue.get().filter(id => getItem(id)); const c = E.c;
+  const i = c.id ? q.indexOf(c.id) : -1;
+  return i < 0 ? null : { q, i };
+}
+function queueBar() {
+  const qi = queueInfo(); if (!qi) return '';
+  const { q, i } = qi;
+  return `<div class="panel glass qbar" data-st>
+    <div class="qbar-l"><span class="label">Série en cours</span><b>Contenu ${i + 1} sur ${q.length}</b></div>
+    <div class="qbar-dots" aria-hidden="true">${q.map((id, k) => `<i class="${k === i ? 'on' : ''}" title="${esc((getItem(id) || {}).titre || '')}"></i>`).join('')}</div>
+    <div class="btn-row"><button class="btn ghost sm mag" id="qPrev" ${i === 0 ? 'disabled' : ''}>${ic('left')}Précédent</button><button class="btn sm mag" id="qNext" ${i === q.length - 1 ? 'disabled' : ''}>Suivant${ic('right')}</button><button class="btn text sm" id="qQuit">Quitter la série</button></div>
+  </div>`;
+}
+async function flush() { if (saveT) { clearTimeout(saveT); saveT = null; if (E.dirty) await persist(); } }
+async function queueGo(step) {
+  const qi = queueInfo(); if (!qi) return; const id = qi.q[qi.i + step]; if (!id) return;
+  await flush(); const t = getItem(id); if (t) E.ctx.go(t.marque, 'creer', null, { id });
+}
+export function queueKeys(e) {
+  if (!E || !E.el.isConnected || !e.altKey || !['ArrowLeft', 'ArrowRight'].includes(e.key) || !queueInfo()) return;
+  e.preventDefault(); queueGo(e.key === 'ArrowLeft' ? -1 : 1);
+}
+addEventListener('keydown', queueKeys);
+
 function visRows() {
   const v = E.c.data.visuels || [];
   if (!v.length) return `<div class="empty" style="padding:16px"><p>Aucun visuel associé.</p></div>`;
@@ -142,6 +169,9 @@ function visRows() {
 /* ---------- wiring ---------- */
 function wire() {
   const el = E.el, c = E.c, d = c.data;
+  const qp = $('#qPrev', el); if (qp) qp.onclick = () => queueGo(-1);
+  const qn = $('#qNext', el); if (qn) qn.onclick = () => queueGo(1);
+  const qq = $('#qQuit', el); if (qq) qq.onclick = () => { editQueue.clear(); const b = $('.qbar', el); if (b) b.remove(); toast('Série terminée'); };
   $('#edPick', el).onchange = e => { if (e.target.value) E.ctx.go(E.ctx.univ, 'creer', null, { id: e.target.value }); };
   const nw = $('#edNew', el); if (nw) nw.onclick = () => E.ctx.go(E.ctx.univ, 'creer', null, {}, true);
   const tp = $('#edTpl', el); if (tp) tp.onclick = pickTemplate;
@@ -231,7 +261,7 @@ function changed() {
   refreshSide();
   if (isDirection() && S.role !== 'admin') return;
   $('#edSaved', E.el).textContent = 'Modifications en cours';
-  clearTimeout(saveT); saveT = setTimeout(() => persist(), 1200);
+  E.dirty = true; clearTimeout(saveT); saveT = setTimeout(() => { saveT = null; persist(); }, 1200);
 }
 async function persist(extra = {}) {
   const c = E.c; if (!c.titre.trim() && !extra.force) { $('#edSaved', E.el).textContent = 'Ajoutez un titre pour enregistrer'; return null; }
@@ -241,12 +271,18 @@ async function persist(extra = {}) {
   Object.assign(c, extra.fields || {});
   try {
     const wasNew = !c.id;
+    E.dirty = false;
     const saved = await saveItem(c);
     if (wasNew) { await addJournal(saved.id, 'action', 'Contenu créé'); history.replaceState(null, '', `#${E.ctx.univ}/creer?id=${saved.id}`); E.ctx.params = { id: saved.id }; }
     const changedStatut = saved.statut !== c.statut;
     E.c = { ...clone(saved), data: { ...c.data, ...saved.data } };
     const t = new Date(); const lbl = $('#edSaved', E.el); if (lbl) lbl.textContent = `Enregistré à ${t.getHours()} h ${String(t.getMinutes()).padStart(2, '0')}`;
-    if (changedStatut || extra.redraw) { draw(); if (saved.statut === 'validation' && !extra.fields) toast('Contenu modifié après validation : il repart en validation', 'alert'); }
+    if (changedStatut || extra.redraw) {
+      draw();
+      if (saved.statut === 'validation' && !extra.fields) toast('Contenu modifié après validation : il repart en validation', 'alert');
+      else if (changedStatut && saved.statut === 'a_produire' && !extra.fields) toast('Date de diffusion fixée : le contenu passe dans « À produire »', 'board');
+      else if (changedStatut && saved.statut === 'idee' && !extra.fields) toast('Date de diffusion retirée : le contenu redevient une idée', 'idea');
+    }
     else { const st = $('#edStatut', E.el); if (st) st.textContent = statutLabel(saved.statut); const pick = $('#edPick', E.el); if (pick && wasNew) { draw(); } }
     return saved;
   } catch (e) { const lbl = $('#edSaved', E.el); if (lbl) lbl.textContent = 'Non enregistré'; return null; }
@@ -328,8 +364,8 @@ function drawFlow() {
   let actions = '';
   if (!c.id) actions = `<p class="muted small">Donnez un titre au contenu : il s'enregistre automatiquement.</p>`;
   else if (PRE_VALID.includes(c.statut) && c.statut !== 'validation' && cr) actions = `
-      <label class="field"><span>Étape</span><select class="input" id="stSel">${['idee', 'a_produire', 'redaction'].map(s => `<option value="${s}" ${s === c.statut ? 'selected' : ''}>${statutLabel(s)}</option>`).join('')}</select></label>
-      <button class="btn mag" id="toValid" style="width:100%;margin-top:12px">${ic('send')}Envoyer en validation</button>`;
+      <p class="small muted">${c.statut === 'idee' ? 'Renseignez une date et une heure de diffusion : le contenu passera automatiquement dans « À produire ».' : `Diffusion prévue le ${fmtDT(c.date_debut)}. Rédigez puis envoyez en validation.`}</p>
+      <button class="btn mag" id="toValid" style="width:100%;margin-top:12px" ${c.date_debut ? '' : 'disabled title="Renseignez d\'abord la date de diffusion"'}>${ic('send')}Envoyer en validation</button>`;
   else if (c.statut === 'validation') actions = dir ? `<p class="small muted">Ce contenu attend votre décision.</p>
       <label class="field" style="margin-top:10px"><span>Commentaire <em>(obligatoire pour une demande de modification)</em></span><textarea class="input" id="valCom" style="min-height:80px"></textarea></label>
       <div class="btn-row" style="margin-top:12px"><button class="btn ok mag" id="valOk">${ic('check')}Valider</button><button class="btn ghost mag" id="valKo">Demander des modifications</button></div>`
@@ -342,28 +378,28 @@ function drawFlow() {
   box.innerHTML = `<div class="panel-head" style="margin-bottom:12px"><div><span class="label">Circuit</span><h2 style="margin-top:4px">${esc(statutLabel(c.statut))}</h2></div>
     ${c.id ? `<div class="btn-row"><button class="icon-btn sm" id="hist" title="Historique et versions" aria-label="Historique et versions">${ic('history')}</button><button class="icon-btn sm" id="coms" title="Commentaires" aria-label="Commentaires">${ic('msg')}</button>${cr ? `<button class="icon-btn sm" id="dup" title="Dupliquer ou décliner" aria-label="Dupliquer ou décliner">${ic('copy')}</button><button class="icon-btn sm" id="arch" title="Archiver" aria-label="Archiver">${ic('trash')}</button>` : ''}</div>` : ''}</div>${actions}`;
   const on = (id, fn) => { const b = $('#' + id, box); if (b) b.onclick = fn; };
-  const ss = $('#stSel', box); if (ss) ss.onchange = () => persist({ fields: { statut: ss.value }, redraw: true });
   on('toValid', async () => {
+    if (!c.date_debut) { toast('Renseignez la date et l\'heure de diffusion avant l\'envoi', 'alert'); const f = $('[data-f="date_debut"]', E.el); if (f) f.focus(); return; }
     const a = E.last; if (a.stats.emojis) { toast('Retirez les emojis avant l\'envoi : la charte les interdit', 'alert'); return; }
     if (!textFor(c, isSocial(c) ? (d.reseaux[0]) : 'principal').trim()) { toast('Rédigez le texte avant l\'envoi', 'alert'); return; }
     const ph = placeholders((isSocial(c) ? d.reseaux : ['principal']).map(n => textFor(c, n)).join('\n')); if (ph.length) { toast(`Complétez d'abord ${ph.length > 1 ? 'les passages' : 'le passage'} ${ph.slice(0, 3).join(', ')}`, 'alert'); return; }
     d.retour = ''; const s = await persist({ fields: { statut: 'validation' }, redraw: true, force: true });
     if (s) { await addJournal(s.id, 'version', 'Version envoyée en validation', { textes: s.data.textes, hashtags: s.data.hashtags, score: s.data.score }); await addJournal(s.id, 'action', 'Envoyé en validation'); toast('Envoyé à la direction pour validation', 'send'); }
   });
-  on('toBack', async () => { const s = await persist({ fields: { statut: 'redaction' }, redraw: true }); if (s) addJournal(s.id, 'action', 'Retiré de la validation'); });
+  on('toBack', async () => { const s = await persist({ fields: { statut: 'a_produire' }, redraw: true }); if (s) addJournal(s.id, 'action', 'Retiré de la validation'); });
   on('valOk', async () => {
     const com = $('#valCom', box).value.trim();
-    const s = await saveItem({ ...c, statut: c.date_debut && new Date(c.date_debut) > new Date() ? 'planifie' : 'a_planifier', data: { ...d, retour: '' } }).catch(() => null);
+    const s = await saveItem({ ...c, statut: 'a_planifier', data: { ...d, retour: '' } }).catch(() => null);
     if (!s) return; E.c = clone(s);
     await addJournal(s.id, 'version', 'Version validée', { textes: s.data.textes, hashtags: s.data.hashtags, score: s.data.score });
     await addJournal(s.id, 'action', 'Validé par la direction'); if (com) await addJournal(s.id, 'commentaire', com);
-    toast('Contenu validé'); draw();
+    toast('Contenu validé : il passe dans « Validé, à planifier »'); draw();
   });
   on('valKo', async () => {
     const t = $('#valCom', box); const com = t.value.trim(); if (!com) { t.classList.add('bad'); t.focus(); toast('Précisez les modifications attendues', 'alert'); return; }
-    const s = await saveItem({ ...c, statut: 'redaction', data: { ...d, retour: com } }).catch(() => null); if (!s) return; E.c = clone(s);
+    const s = await saveItem({ ...c, statut: 'a_produire', data: { ...d, retour: com, retour_le: new Date().toISOString() } }).catch(() => null); if (!s) return; E.c = clone(s);
     await addJournal(s.id, 'action', 'Modifications demandées'); await addJournal(s.id, 'commentaire', com);
-    toast('Demande de modification envoyée'); draw();
+    toast('Demande de modification envoyée : le contenu repasse dans « À produire »'); draw();
   });
   on('toPlan', async () => { const s = await persist({ fields: { statut: 'planifie' }, redraw: true }); if (s) { addJournal(s.id, 'action', 'Planifié'); toast('Contenu planifié', 'cal'); } });
   on('toPub', async () => { const s = await persist({ fields: { statut: 'publie', date_debut: c.date_debut || new Date().toISOString() }, redraw: true }); if (s) { addJournal(s.id, 'action', 'Publié'); toast('Bravo, contenu publié', 'trophy'); } });
@@ -409,14 +445,14 @@ export async function openComments(c) {
 }
 export function openDecline(c, ctx) {
   let sel = [c.marque];
-  const { el, close } = modal(`<div class="modal-head"><div><span class="label">Dupliquer</span><h2 style="margin-top:6px">Décliner ce contenu</h2><p>Une copie en rédaction est créée pour chaque marque choisie. Le texte reste à adapter à chaque univers.</p></div><button class="icon-btn" data-close aria-label="Fermer">${ic('x')}</button></div>
+  const { el, close } = modal(`<div class="modal-head"><div><span class="label">Dupliquer</span><h2 style="margin-top:6px">Décliner ce contenu</h2><p>Une copie est créée en idée pour chaque marque choisie. Le texte reste à adapter à chaque univers.</p></div><button class="icon-btn" data-close aria-label="Fermer">${ic('x')}</button></div>
     <div class="tagsel" id="dm">${BRAND_KEYS.map(b => `<button type="button" data-v="${b}" class="${sel.includes(b) ? 'on' : ''}">${esc(BRANDS[b].nom)}</button>`).join('')}</div>
     <div class="modal-foot"><button class="btn ghost" data-close>Annuler</button><button class="btn mag" id="dGo">${ic('copy')}Créer les copies</button></div>`);
   $('#dm', el).onclick = e => { const b = e.target.closest('button'); if (!b) return; const v = b.dataset.v; sel = sel.includes(v) ? sel.filter(x => x !== v) : [...sel, v]; b.classList.toggle('on', sel.includes(v)); };
   $('#dGo', el).onclick = async () => {
     if (!sel.length) { toast('Choisissez au moins une marque', 'alert'); return; }
     let last = null;
-    for (const m of sel) { last = await saveItem({ kind: 'contenu', marque: m, titre: c.titre + (m === c.marque ? ' (copie)' : ''), statut: 'redaction', date_debut: null, parent_id: c.id, data: { ...clone(c.data), retour: '', stats: {}, score: c.data.score } }); await addJournal(last.id, 'action', `Décliné depuis « ${c.titre} »`); }
+    for (const m of sel) { last = await saveItem({ kind: 'contenu', marque: m, titre: c.titre + (m === c.marque ? ' (copie)' : ''), statut: 'idee', date_debut: null, parent_id: c.id, data: { ...clone(c.data), retour: '', stats: {}, score: c.data.score } }); await addJournal(last.id, 'action', `Décliné depuis « ${c.titre} »`); }
     close(); toast(`${sel.length} copie${sel.length > 1 ? 's' : ''} créée${sel.length > 1 ? 's' : ''}`, 'copy');
     if (last) ctx.go(last.marque, 'creer', null, { id: last.id });
   };
