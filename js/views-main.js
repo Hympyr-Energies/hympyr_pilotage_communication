@@ -5,8 +5,8 @@ import {
   $, $$, esc, S, byKind, getItem, contents, saveItem, deleteItem, addJournal, toast, modal, confirmBox, seg, ic, swap, ring, animateRings, animateBars, stagger,
   BRANDS, SUB_BRANDS, BRAND_KEYS, STATUTS, statutLabel, PRE_VALID, typeLabel, typeFamily, objLabel, cibleLabel, RESEAUX, TYPES,
   isoDay, fmtDate, fmtDT, fmtShort, startOfWeek, addDays, sameDay, holidays, settings, isDirection, canCreate, memberName, brandDot, pct, num, toLocalInput, fromLocalInput
-} from './core.js';
-import { scoreLabel } from './analysis.js';
+} from './core.js?v=5';
+import { scoreLabel } from './analysis.js?v=5';
 
 const bc = m => (BRANDS[m] || BRANDS.groupe).color;
 const scope = univ => univ === 'groupe' ? contents() : contents(univ);

@@ -4,16 +4,17 @@
 import {
   sb, $, $$, esc, root, EASE, RM, store, S, loadAll, byKind, getItem, contents, saveItem, addJournal, toast, modal, seg, segSet, setupInd, setupGlide, place, replaceInd,
   ic, animOut, stagger, setTheme, syncThemeLabel, logoHTML, BRANDS, BRAND_KEYS, statutLabel, fmtDT, fmtDate, isDirection, canCreate, brandDot, onChange
-} from './core.js';
-import { renderEditor } from './editor.js';
-import { renderDashboard, renderCalendar, renderBoard, renderValidation, renderDemandes, renderInterne, demandFields, readDemand } from './views-main.js';
-import { renderAnalyser, renderComparer, renderPerformances, renderHashtags, renderPersonas, renderVisuels, renderModeles, renderCampagnes, renderEvenements, renderPrint, renderPresse, renderStats, renderBudget, renderRapports, renderReglages } from './views-more.js';
+} from './core.js?v=5';
+import { renderEditor } from './editor.js?v=5';
+import { renderModeles } from './templates.js?v=5';
+import { renderDashboard, renderCalendar, renderBoard, renderValidation, renderDemandes, renderInterne, demandFields, readDemand } from './views-main.js?v=5';
+import { renderAnalyser, renderComparer, renderPerformances, renderHashtags, renderPersonas, renderVisuels, renderCampagnes, renderEvenements, renderPrint, renderPresse, renderStats, renderBudget, renderRapports, renderReglages } from './views-more.js?v=5';
 
 const NAV = {
   groupe: [
     { k: 'accueil', l: 'Accueil', i: 'home', t: 'Tableau de bord du groupe', d: 'Activité de la semaine, validations, équilibre entre marques et objectifs.' },
     { k: 'calendrier', l: 'Calendrier', i: 'cal', t: 'Calendrier global', d: 'Tous les contenus planifiés, une couleur par marque. Glissez pour replanifier.' },
-    { k: 'production', l: 'Production', i: 'board', main: true, t: 'Production', d: 'Les contenus par étape, les validations, les demandes et la communication interne.', subs: [['tableau', 'Tableau'], ['validation', 'Validation'], ['demandes', 'Demandes'], ['interne', 'Interne']] },
+    { k: 'production', l: 'Production', i: 'board', main: true, t: 'Production', d: 'Les contenus par étape, les validations, les demandes, la communication interne et les modèles.', subs: [['tableau', 'Tableau'], ['validation', 'Validation'], ['demandes', 'Demandes'], ['interne', 'Interne'], ['modeles', 'Modèles']] },
     { k: 'projets', l: 'Projets', i: 'folder', t: 'Projets', d: 'Campagnes, événements, fabrication print et relations presse.', subs: [['campagnes', 'Campagnes'], ['evenements', 'Événements'], ['print', 'Print'], ['presse', 'Presse']] },
     { k: 'pilotage', l: 'Pilotage', i: 'chart', t: 'Pilotage', d: 'Statistiques, budget, rapports mensuels et réglages de l\'outil.', subs: [['stats', 'Statistiques'], ['budget', 'Budget'], ['rapports', 'Rapports'], ['reglages', 'Réglages']] }
   ],
@@ -27,7 +28,7 @@ const NAV = {
 };
 const VIEWS = {
   'accueil': renderDashboard, 'calendrier': renderCalendar, 'creer': renderEditor,
-  'production.tableau': renderBoard, 'production.validation': renderValidation, 'production.demandes': renderDemandes, 'production.interne': renderInterne,
+  'production.tableau': renderBoard, 'production.validation': renderValidation, 'production.demandes': renderDemandes, 'production.interne': renderInterne, 'production.modeles': renderModeles,
   'projets.campagnes': renderCampagnes, 'projets.evenements': renderEvenements, 'projets.print': renderPrint, 'projets.presse': renderPresse,
   'pilotage.stats': renderStats, 'pilotage.budget': renderBudget, 'pilotage.rapports': renderRapports, 'pilotage.reglages': renderReglages,
   'analyse.analyser': renderAnalyser, 'analyse.comparer': renderComparer, 'analyse.performances': renderPerformances,

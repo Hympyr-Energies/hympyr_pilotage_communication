@@ -5,8 +5,9 @@ import {
   $, $$, esc, clone, S, byKind, getItem, saveItem, deleteItem, addJournal, journal, toast, modal, confirmBox, seg, segSet, ic, swap, animateRings,
   BRANDS, SUB_BRANDS, BRAND_KEYS, TYPES, typeLabel, typeFamily, RESEAUX, OBJECTIFS, objLabel, CIBLES, STATUTS, statutLabel, PRE_VALID,
   toLocalInput, fromLocalInput, fmtDT, fmtDate, isDirection, canCreate, memberName, settings, ring, stagger, uid, brandDot
-} from './core.js';
-import { analyse, radarSVG, animateRadar, scoreLabel, CRITERES } from './analysis.js';
+} from './core.js?v=5';
+import { analyse, radarSVG, animateRadar, scoreLabel, CRITERES } from './analysis.js?v=5';
+import { applyTemplate, pickTemplateFor, saveAsTemplate, placeholders } from './templates.js?v=5';
 
 const blank = marque => ({ kind: 'contenu', marque, titre: '', statut: 'redaction', date_debut: null, data: { type: 'publication', cible: ['professionnels'], objectif: 'pedagogique', reseaux: ['linkedin'], textes: { linkedin: '', instagram: '', principal: '' }, hashtags: [], lien: '', utm: true, visuels: [], campagne_id: '', interne: { canaux: [], lecture: false, lus: 0, total: 0 }, mentions_ok: false } });
 const slug = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
@@ -34,6 +35,8 @@ export function renderEditor(el, ctx) {
   E = { ctx, el, c: it ? clone(it) : blank(marque), net: 'linkedin', saved: it ? JSON.stringify(it) : '', last: null, prevScores: null };
   if (!isSocial(E.c)) E.net = 'principal'; else E.net = (E.c.data.reseaux || ['linkedin'])[0] || 'linkedin';
   E.c.data = { ...blank(marque).data, ...E.c.data, textes: { ...blank(marque).data.textes, ...(E.c.data.textes || {}) }, interne: { ...blank(marque).data.interne, ...(E.c.data.interne || {}) } };
+  const tpl = !it && ctx.params && ctx.params.tpl ? getItem(ctx.params.tpl) : null;
+  if (tpl) { applyTemplate(E.c, tpl); E.net = isSocial(E.c) ? (E.c.data.reseaux || ['linkedin'])[0] : 'principal'; ctx.params = {}; setTimeout(() => toast(`Modèle « ${tpl.titre} » appliqué. Complétez les passages entre crochets.`, 'layers'), 500); }
   draw();
 }
 function readonly() { const c = E.c; if (S.role === 'admin') return false; if (isDirection()) return true; return !PRE_VALID.includes(c.statut) && !['a_planifier', 'planifie'].includes(c.statut) ? c.statut === 'publie' ? false : true : false; }
@@ -55,9 +58,11 @@ function draw() {
         <span class="small muted" id="edSaved">${c.id ? 'Enregistré' : ''}</span>
       </div>
       <div class="btn-row">
-        ${canCreate() ? `<button class="btn ghost sm mag" id="edNew">${ic('plus')}Nouveau</button><button class="btn ghost sm mag" id="edTpl">${ic('layers')}Partir d'un modèle</button>` : ''}
+        ${canCreate() ? `<button class="btn ghost sm mag" id="edNew">${ic('plus')}Nouveau</button><button class="btn ghost sm mag" id="edTpl">${ic('layers')}Partir d'un modèle</button><button class="btn ghost sm mag" id="edSaveTpl" title="Réutiliser ce contenu comme trame">${ic('copy')}Enregistrer comme modèle</button>` : ''}
       </div>
     </div>
+    ${d.consignes ? `<div class="tile" style="margin-top:14px;padding:12px 14px;border-color:color-mix(in srgb,var(--accent) 45%,transparent)"><span class="label">Consignes du modèle</span><p style="margin-top:4px;font-size:13.5px;white-space:pre-wrap">${esc(d.consignes)}</p></div>` : ''}
+    <div id="edPh"></div>
     ${d.retour && c.statut === 'redaction' ? `<div class="tile" style="margin-top:14px;padding:12px 14px;border-color:color-mix(in srgb,var(--warn) 50%,transparent)"><span class="label" style="color:var(--warn)">Retour de la direction</span><p style="margin-top:4px;font-size:13.5px">${esc(d.retour)}</p></div>` : ''}
   </div>
   <div class="split">
@@ -140,6 +145,8 @@ function wire() {
   $('#edPick', el).onchange = e => { if (e.target.value) E.ctx.go(E.ctx.univ, 'creer', null, { id: e.target.value }); };
   const nw = $('#edNew', el); if (nw) nw.onclick = () => E.ctx.go(E.ctx.univ, 'creer', null, {}, true);
   const tp = $('#edTpl', el); if (tp) tp.onclick = pickTemplate;
+  const st = $('#edSaveTpl', el); if (st) st.onclick = () => saveAsTemplate(E.c);
+  phBanner();
   const ns = $('#netSeg', el);
   if (ns) seg(ns, (d.reseaux || []).map(n => [n, n === 'linkedin' ? 'LinkedIn' : 'Instagram', n]), E.net, v => { E.net = v; const ta = $('#edText', el); swapText(ta, d.textes[v] || ''); const cp = $('#copyNet', el); if (cp) cp.lastChild.textContent = `Reprendre le texte ${v === 'linkedin' ? 'Instagram' : 'LinkedIn'}`; refreshSide(); });
   const cp = $('#copyNet', el); if (cp) cp.onclick = () => { const other = E.net === 'linkedin' ? 'instagram' : 'linkedin'; d.textes[E.net] = d.textes[other] || ''; swapText($('#edText', el), d.textes[E.net]); changed(); };
@@ -220,6 +227,7 @@ function redrawTags() {
 
 /* ---------- change + autosave ---------- */
 function changed() {
+  phBanner();
   refreshSide();
   if (isDirection() && S.role !== 'admin') return;
   $('#edSaved', E.el).textContent = 'Modifications en cours';
@@ -338,6 +346,7 @@ function drawFlow() {
   on('toValid', async () => {
     const a = E.last; if (a.stats.emojis) { toast('Retirez les emojis avant l\'envoi : la charte les interdit', 'alert'); return; }
     if (!textFor(c, isSocial(c) ? (d.reseaux[0]) : 'principal').trim()) { toast('Rédigez le texte avant l\'envoi', 'alert'); return; }
+    const ph = placeholders((isSocial(c) ? d.reseaux : ['principal']).map(n => textFor(c, n)).join('\n')); if (ph.length) { toast(`Complétez d'abord ${ph.length > 1 ? 'les passages' : 'le passage'} ${ph.slice(0, 3).join(', ')}`, 'alert'); return; }
     d.retour = ''; const s = await persist({ fields: { statut: 'validation' }, redraw: true, force: true });
     if (s) { await addJournal(s.id, 'version', 'Version envoyée en validation', { textes: s.data.textes, hashtags: s.data.hashtags, score: s.data.score }); await addJournal(s.id, 'action', 'Envoyé en validation'); toast('Envoyé à la direction pour validation', 'send'); }
   });
@@ -367,11 +376,12 @@ function drawFlow() {
 }
 
 /* ---------- modals ---------- */
-async function pickTemplate() {
-  const tpls = byKind('modele').filter(t => t.marque === 'groupe' || t.marque === E.c.marque);
-  const { el, close } = modal(`<div class="modal-head"><div><span class="label">Modèles</span><h2 style="margin-top:6px">Partir d'un modèle</h2><p>La structure remplace le texte en cours de l'onglet actif.</p></div><button class="icon-btn" data-close aria-label="Fermer">${ic('x')}</button></div>
-    <div class="rows">${tpls.map(t => `<div class="tile rowi click" data-tpl="${t.id}"><span class="chip">${esc(typeLabel(t.data.type))}</span><div class="t"><b>${esc(t.titre)}</b><span>${esc(objLabel(t.data.objectif))}</span></div><span class="a">${ic('right')}</span></div>`).join('') || '<p class="muted">Aucun modèle. Créez-en dans Ressources, onglet Modèles.</p>'}</div>`);
-  el.addEventListener('click', e => { const r = e.target.closest('[data-tpl]'); if (!r) return; const t = getItem(r.dataset.tpl); const d = E.c.data; d.type = t.data.type || d.type; d.objectif = t.data.objectif || d.objectif; if (isSocial(E.c)) { E.net = (d.reseaux || ['linkedin'])[0]; d.textes[E.net] = t.data.texte || ''; } else { E.net = 'principal'; d.textes.principal = t.data.texte || ''; } if (!E.c.titre) E.c.titre = t.titre; close(); changed(); draw(); });
+function pickTemplate() {
+  pickTemplateFor(E.c, t => { applyTemplate(E.c, t); E.net = isSocial(E.c) ? (E.c.data.reseaux || ['linkedin'])[0] : 'principal'; changed(); draw(); toast('Modèle appliqué. Complétez les passages entre crochets.', 'layers'); });
+}
+function phBanner() {
+  const box = $('#edPh', E.el); if (!box) return; const p = placeholders(Object.values(E.c.data.textes || {}).join('\n'));
+  box.innerHTML = p.length ? `<div class="tile" style="margin-top:14px;padding:10px 14px;display:flex;gap:10px;align-items:center;border-color:color-mix(in srgb,var(--warn) 50%,transparent)"><span class="chip warn">${ic('alert')}${p.length} à compléter</span><span class="small" style="min-width:0;overflow-wrap:anywhere">${esc(p.slice(0, 6).join('  '))}${p.length > 6 ? '…' : ''}</span></div>` : '';
 }
 async function pickVisual() {
   const vis = byKind('visuel').filter(v => v.marque === E.c.marque || v.marque === 'groupe');

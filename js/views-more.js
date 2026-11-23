@@ -5,8 +5,8 @@ import {
   $, $$, esc, clone, S, byKind, getItem, contents, saveItem, deleteItem, addJournal, toast, modal, confirmBox, seg, ic, swap, ring, animateRings, animateBars, stagger,
   BRANDS, SUB_BRANDS, BRAND_KEYS, OBJECTIFS, objLabel, RESEAUX, typeLabel, typeFamily, statutLabel, CIBLES,
   isoDay, fmtDate, fmtDT, addDays, settings, saveSettings, DEFAULT_SETTINGS, isDirection, canCreate, memberName, brandDot, euro, num, pct, download, toLocalInput, fromLocalInput
-} from './core.js';
-import { analyse, radarSVG, animateRadar, highlight, scoreLabel, CRITERES, DEFAULT_POIDS, poids } from './analysis.js';
+} from './core.js?v=5';
+import { analyse, radarSVG, animateRadar, highlight, scoreLabel, CRITERES, DEFAULT_POIDS, poids } from './analysis.js?v=5';
 
 const bc = m => (BRANDS[m] || BRANDS.groupe).color;
 const head = (lab, title, p = '', right = '') => `<div class="panel-head"><div><span class="label">${lab}</span><h2 style="margin-top:4px">${title}</h2>${p ? `<p>${p}</p>` : ''}</div>${right}</div>`;
@@ -146,16 +146,6 @@ export function renderVisuels(el, ctx) {
   const va = $('#vAdd', el); if (va) va.onclick = () => form({ kind: 'visuel', marque: m, titre: '', data: {} });
   el.onclick = e => { const b = e.target.closest('[data-edit]'); if (b && canCreate()) form(getItem(b.dataset.edit)); };
 }
-export function renderModeles(el, ctx) {
-  const m = ctx.univ; const ts = byKind('modele').filter(t => t.marque === m || t.marque === 'groupe');
-  el.innerHTML = `<div class="panel glass" data-st>${head('Modèles', 'Structures prêtes à l\'emploi', 'Un modèle donne la trame ; le texte reste à écrire.', canCreate() ? `<button class="btn sm mag" id="tAdd">${ic('plus')}Nouveau modèle</button>` : '')}
-    <div class="grid g3">${ts.map(t => `<div class="tile click" data-edit="${t.id}" style="padding:18px;display:flex;flex-direction:column;gap:10px"><div class="btn-row"><span class="chip">${esc(typeLabel(t.data.type))}</span><span class="chip gray">${esc(objLabel(t.data.objectif))}</span>${t.marque !== 'groupe' ? brandDot(t.marque) : ''}</div><b style="color:var(--head)">${esc(t.titre)}</b><p class="small muted" style="white-space:pre-wrap;max-height:110px;overflow:hidden">${esc(t.data.texte || '')}</p></div>`).join('')}</div></div>`;
-  stagger(el);
-  const form = it => itemForm({ label: 'Modèle', title: it.id ? it.titre : 'Nouveau modèle', item: it, fields: [['titre', 'Nom', 'text'], ['marque', 'Marque', 'select', brandOpts()], ['data.type', 'Type', 'select', [['publication', 'Publication'], ['carrousel', 'Carrousel'], ['video', 'Vidéo'], ['article', 'Article'], ['newsletter', 'Newsletter'], ['communique', 'Communiqué'], ['note_interne', 'Note de service']]], ['data.objectif', 'Objectif', 'select', OBJECTIFS], ['data.texte', 'Trame', 'textarea']], onSave: async o => { await saveItem(o); toast('Modèle enregistré'); ctx.refresh(true); }, onDelete: async o => { await deleteItem(o.id); ctx.refresh(true); } });
-  const ta = $('#tAdd', el); if (ta) ta.onclick = () => form({ kind: 'modele', marque: m, titre: '', data: { type: 'publication', objectif: 'pedagogique', texte: '' } });
-  el.onclick = e => { const b = e.target.closest('[data-edit]'); if (b && canCreate()) form(getItem(b.dataset.edit)); };
-}
-
 /* =========================================================
    PROJECTS : campaigns, events, print, press
    ========================================================= */
