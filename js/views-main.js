@@ -4,15 +4,19 @@
 import {
   $, $$, esc, S, byKind, getItem, contents, saveItem, deleteItem, addJournal, toast, modal, confirmBox, seg, ic, swap, ring, animateRings, animateBars, stagger,
   BRANDS, SUB_BRANDS, BRAND_KEYS, STATUTS, statutLabel, PRE_VALID, typeLabel, typeFamily, objLabel, cibleLabel, RESEAUX, TYPES,
-  isoDay, fmtDate, fmtDT, fmtShort, startOfWeek, addDays, sameDay, holidays, settings, isDirection, canCreate, memberName, brandDot, pct, num, toLocalInput, fromLocalInput
-} from './core.js?v=5';
-import { scoreLabel } from './analysis.js?v=5';
+  isoDay, fmtDate, fmtDT, fmtShort, startOfWeek, addDays, sameDay, holidays, settings, isDirection, canCreate, memberName, brandDot, pct, num, toLocalInput, fromLocalInput,
+  clone, editQueue
+} from './core.js?v=6';
+import { scoreLabel } from './analysis.js?v=6';
+import { openHistory, openComments, openDecline } from './editor.js?v=6';
 
 const bc = m => (BRANDS[m] || BRANDS.groupe).color;
 const scope = univ => univ === 'groupe' ? contents() : contents(univ);
-const card = (c) => `<div class="tile kcard" draggable="true" data-id="${c.id}" style="--bc:${bc(c.marque)}"><b>${esc(c.titre || 'Sans titre')}</b>
+const card = (c, sel) => `<div class="tile kcard${sel && sel.has(c.id) ? ' sel' : ''}" draggable="true" data-id="${c.id}" tabindex="0" style="--bc:${bc(c.marque)}" aria-label="${esc(c.titre || 'Sans titre')}">
+  <div class="kc-top"><button type="button" class="ksel" aria-label="Sélectionner" aria-pressed="${sel && sel.has(c.id) ? 'true' : 'false'}">${ic('check')}</button><b>${esc(c.titre || 'Sans titre')}</b><button type="button" class="kmore" aria-label="Actions sur ce contenu" aria-haspopup="menu">${ic('more')}</button></div>
   <div class="m">${brandDot(c.marque)}<span class="chip gray">${esc(typeLabel(c.data.type))}</span>${(c.data.reseaux || []).map(n => `<span class="chip gray">${n === 'linkedin' ? 'LinkedIn' : 'Instagram'}</span>`).join('')}${c.data.score != null ? `<span class="chip ${c.data.score >= 70 ? 'ok' : c.data.score >= 50 ? 'warn' : 'err'}">${c.data.score}</span>` : ''}</div>
-  <span class="d">${c.date_debut ? fmtDT(c.date_debut) : 'Date à définir'}${c.data.retour && c.statut === 'redaction' ? ' · retour direction' : ''}</span></div>`;
+  ${c.data.retour && c.statut === 'a_produire' ? `<span class="chip warn kret" title="${esc(c.data.retour)}">${ic('msg')}Modifications demandées</span>` : ''}
+  <span class="d">${c.date_debut ? fmtDT(c.date_debut) : 'Date de diffusion à définir'}</span></div>`;
 
 /* =========================================================
    DASHBOARD (groupe & brand)
@@ -211,42 +215,203 @@ export function renderCalendar(el, ctx) {
 /* =========================================================
    BOARD (kanban)
    ========================================================= */
-const board = { marques: [...BRAND_KEYS], q: '' };
+const board = { marques: [...BRAND_KEYS], q: '', sel: new Set(), anchor: null };
+const COL_HINT = { idee: 'Sans date de diffusion', a_produire: 'Date et heure fixées', validation: 'Envoyé depuis Créer', a_planifier: 'Validé par la direction' };
+
+/* Fenêtre de saisie de la date et de l'heure de diffusion. Résout avec une date ISO, '' pour retirer la date, ou null si annulé. */
+function askDate(c, { allowClear } = {}) {
+  return new Promise(res => {
+    let out = null;
+    const { el, close } = modal(`<div class="modal-head"><div><span class="label">Diffusion</span><h2 style="margin-top:6px">Date et heure de diffusion</h2><p>${esc(c.titre || 'Sans titre')}</p></div><button class="icon-btn" data-close aria-label="Fermer">${ic('x')}</button></div>
+      <label class="field"><span>Date et heure</span><input class="input" type="datetime-local" id="adV" value="${toLocalInput(c.date_debut)}"></label>
+      <p class="small muted" style="margin-top:10px">Une idée datée passe automatiquement dans « À produire ».</p>
+      <div class="modal-foot">${allowClear && c.date_debut ? '<button class="btn text" id="adClr">Retirer la date</button>' : ''}<button class="btn ghost" data-close>Annuler</button><button class="btn mag" id="adOk">${ic('cal')}Enregistrer</button></div>`, { onClose: () => res(out) });
+    const v = $('#adV', el);
+    $('#adOk', el).onclick = () => { if (!v.value) { v.classList.add('bad'); v.focus(); return; } out = fromLocalInput(v.value); close(); };
+    v.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#adOk', el).click(); } });
+    const clr = $('#adClr', el); if (clr) clr.onclick = () => { out = ''; close(); };
+  });
+}
+async function setDate(c, iso, ctx) {
+  const before = c.statut;
+  try {
+    const s = await saveItem({ ...c, date_debut: iso || null });
+    await addJournal(c.id, 'action', iso ? `Date de diffusion fixée au ${fmtDT(iso)}` : 'Date de diffusion retirée');
+    toast(s.statut !== before ? `« ${s.titre} » : ${statutLabel(s.statut)}` : 'Date de diffusion enregistrée', 'cal');
+    ctx.refresh(true); return s;
+  } catch (e) { return null; }
+}
+
+/* ---------- menu contextuel ---------- */
+let menuEl = null;
+function closeMenu() {
+  if (!menuEl) return; const m = menuEl; menuEl = null;
+  removeEventListener('pointerdown', menuOutside, true); removeEventListener('keydown', menuKeys, true); removeEventListener('resize', closeMenu); removeEventListener('scroll', closeMenu, true);
+  m.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(.97)' }], { duration: 140, fill: 'forwards' }).done.then(() => m.remove());
+}
+function menuOutside(e) { if (menuEl && !menuEl.contains(e.target)) closeMenu(); }
+function menuKeys(e) {
+  if (!menuEl) return;
+  const items = $$('button:not([disabled])', menuEl); const i = items.indexOf(document.activeElement);
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); (items[i + 1] || items[0]).focus(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); (items[i - 1] || items[items.length - 1]).focus(); }
+  else if (e.key === 'Tab') closeMenu();
+}
+function openMenu(x, y, head, entries) {
+  closeMenu();
+  const m = document.createElement('div'); m.className = 'ctxmenu glass'; m.setAttribute('role', 'menu');
+  m.innerHTML = `<div class="cm-head">${head}</div>` + entries.map((it, i) => it === '-' ? '<hr>' : `<button type="button" role="menuitem" data-i="${i}" class="${it.danger ? 'danger' : ''}" ${it.disabled ? 'disabled' : ''}>${ic(it.ic)}<span>${esc(it.l)}</span>${it.k ? `<kbd>${esc(it.k)}</kbd>` : ''}</button>`).join('');
+  $('#layer').appendChild(m);
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + 'px';
+  m.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
+  m.animate([{ opacity: 0, transform: 'scale(.96) translateY(-4px)' }, { opacity: 1, transform: 'none' }], { duration: 220, easing: 'cubic-bezier(.22,1,.36,1)' });
+  m.onclick = e => { const b = e.target.closest('button[data-i]'); if (!b || b.disabled) return; const it = entries[+b.dataset.i]; closeMenu(); it.fn(); };
+  menuEl = m;
+  setTimeout(() => { addEventListener('pointerdown', menuOutside, true); addEventListener('resize', closeMenu); addEventListener('scroll', closeMenu, true); }, 0);
+  addEventListener('keydown', menuKeys, true);
+  const f = $('button:not([disabled])', m); if (f) f.focus({ preventScroll: true });
+}
+
+/* ---------- actions (unitaires et groupées) ---------- */
+function startQueue(ids, ctx) {
+  const list = ids.map(getItem).filter(Boolean).sort((a, b) => new Date(a.date_debut || 8e15) - new Date(b.date_debut || 8e15));
+  if (!list.length) return;
+  editQueue.set(list.map(c => c.id)); board.sel.clear();
+  if (list.length > 1) toast(`Série de ${list.length} contenus : utilisez Suivant et Précédent dans l'éditeur`, 'pen');
+  ctx.open(list[0].id);
+}
+async function duplicate(ids, ctx) {
+  let n = 0;
+  for (const id of ids) {
+    const c = getItem(id); if (!c) continue;
+    try {
+      const s = await saveItem({ kind: 'contenu', marque: c.marque, titre: (c.titre || 'Sans titre') + ' (copie)', statut: 'idee', date_debut: null, parent_id: c.id, data: { ...clone(c.data), retour: '', retour_le: '', stats: {} } });
+      await addJournal(s.id, 'action', `Dupliqué depuis « ${c.titre} »`); n++;
+    } catch (e) { break; }
+  }
+  if (n) { toast(n > 1 ? `${n} contenus dupliqués dans « Idée »` : 'Contenu dupliqué dans « Idée »', 'copy'); board.sel.clear(); ctx.refresh(true); }
+}
+async function archive(ids, ctx) {
+  const n = ids.length;
+  if (!await confirmBox(n > 1 ? `Archiver ${n} contenus ?` : 'Archiver ce contenu ?', 'Ils disparaissent du calendrier et du tableau, mais restent consultables dans la recherche.', { ok: 'Archiver' })) return;
+  let k = 0;
+  for (const id of ids) { const c = getItem(id); if (!c) continue; try { await saveItem({ ...c, statut: 'archive' }); await addJournal(id, 'action', 'Archivé'); k++; } catch (e) { break; } }
+  if (k) { toast(k > 1 ? `${k} contenus archivés` : 'Contenu archivé'); ids.forEach(id => board.sel.delete(id)); ctx.refresh(true); }
+}
+async function remove(ids, ctx) {
+  const n = ids.length;
+  const pub = ids.map(getItem).filter(c => c && c.statut === 'publie').length;
+  if (!await confirmBox(n > 1 ? `Supprimer définitivement ${n} contenus ?` : 'Supprimer définitivement ce contenu ?', `Le texte, l'historique et les commentaires seront effacés, sans retour possible.${pub ? ` ${pub > 1 ? `${pub} contenus sont déjà publiés` : 'Ce contenu est déjà publié'} : ses statistiques seront perdues.` : ''} Pour garder une trace, préférez Archiver.`, { ok: n > 1 ? `Supprimer les ${n} contenus` : 'Supprimer', danger: true })) return;
+  let k = 0;
+  for (const id of ids) { try { await deleteItem(id); k++; board.sel.delete(id); } catch (e) { break; } }
+  const q = editQueue.get(); if (q.some(id => ids.includes(id))) editQueue.set(q.filter(id => !ids.includes(id)));
+  if (k) { toast(k > 1 ? `${k} contenus supprimés` : 'Contenu supprimé', 'trash'); ctx.refresh(true); }
+}
+function cardMenu(c, x, y, ctx) {
+  const cr = canCreate(), multi = board.sel.size > 1 && board.sel.has(c.id);
+  if (multi) {
+    const ids = [...board.sel];
+    openMenu(x, y, `<b>${ids.length} contenus sélectionnés</b>`, [
+      { ic: 'pen', l: 'Éditer la sélection', fn: () => startQueue(ids, ctx) },
+      ...(cr ? [{ ic: 'copy', l: 'Dupliquer', fn: () => duplicate(ids, ctx) }] : []),
+      { ic: 'x', l: 'Tout désélectionner', k: 'Échap', fn: () => { board.sel.clear(); ctx.refresh(true); } },
+      ...(cr ? ['-', { ic: 'folder', l: 'Archiver', fn: () => archive(ids, ctx) }, { ic: 'trash', l: `Supprimer les ${ids.length} contenus`, danger: true, fn: () => remove(ids, ctx) }] : [])
+    ]);
+    return;
+  }
+  const inSel = board.sel.has(c.id), canDate = cr && c.statut !== 'publie';
+  openMenu(x, y, `<b>${esc(c.titre || 'Sans titre')}</b><span>${esc(statutLabel(c.statut))}${c.date_debut ? ' · ' + fmtDT(c.date_debut) : ''}</span>`, [
+    { ic: 'pen', l: cr ? 'Modifier' : 'Ouvrir', fn: () => ctx.open(c.id) },
+    ...(canDate ? [{ ic: 'cal', l: c.date_debut ? 'Changer la date de diffusion' : 'Fixer la date de diffusion', fn: async () => { const v = await askDate(c, { allowClear: PRE_VALID.includes(c.statut) }); if (v !== null) setDate(getItem(c.id), v, ctx); } }] : []),
+    ...(cr ? [{ ic: 'copy', l: 'Dupliquer', fn: () => duplicate([c.id], ctx) }, { ic: 'layers', l: 'Décliner vers une autre marque', fn: () => openDecline(c, ctx) }] : []),
+    { ic: 'select', l: inSel ? 'Retirer de la sélection' : 'Sélectionner', k: 'Ctrl clic', fn: () => { toggleSel(c.id); ctx.refresh(true); } },
+    '-',
+    { ic: 'history', l: 'Historique et versions', fn: () => openHistory(c) },
+    { ic: 'msg', l: 'Commentaires', fn: () => openComments(c) },
+    ...(cr ? ['-', { ic: 'folder', l: 'Archiver', fn: () => archive([c.id], ctx) }, { ic: 'trash', l: 'Supprimer', danger: true, fn: () => remove([c.id], ctx) }] : [])
+  ]);
+}
+function toggleSel(id) { if (board.sel.has(id)) board.sel.delete(id); else board.sel.add(id); board.anchor = id; }
+
 export function renderBoard(el, ctx) {
+  closeMenu();
   const cols = STATUTS.filter(s => s[0] !== 'archive');
   const items = contents().filter(c => board.marques.includes(c.marque) && (!board.q || (c.titre || '').toLowerCase().includes(board.q.toLowerCase())));
-  el.innerHTML = `<div class="panel glass" data-st>
+  [...board.sel].forEach(id => { if (!items.some(c => c.id === id)) board.sel.delete(id); });
+  const n = board.sel.size, cr = canCreate();
+  el.innerHTML = `<div class="panel glass${n ? ' selecting' : ''}" data-st id="kPanel">
     <div class="cal-tools"><div class="btn-row"><div class="tagsel" id="kBrands">${BRAND_KEYS.map(b => `<button type="button" data-v="${b}" class="${board.marques.includes(b) ? 'on' : ''}">${esc(BRANDS[b].court)}</button>`).join('')}</div></div>
-      <div class="btn-row"><input class="input" id="kQ" placeholder="Filtrer par titre" value="${esc(board.q)}" style="min-height:38px;width:220px">${canCreate() ? `<button class="btn ghost sm mag" id="kIdea">${ic('idea')}Idée</button><button class="btn sm mag" id="kNew">${ic('plus')}Nouveau contenu</button>` : ''}</div></div>
+      <div class="btn-row"><input class="input" id="kQ" placeholder="Filtrer par titre" value="${esc(board.q)}" style="min-height:38px;width:220px">${cr ? `<button class="btn ghost sm mag" id="kIdea">${ic('idea')}Idée</button><button class="btn sm mag" id="kNew">${ic('plus')}Nouveau contenu</button>` : ''}</div></div>
+    <div class="selbar" id="kSel" ${n ? '' : 'hidden'}>
+      <b>${n} contenu${n > 1 ? 's' : ''} sélectionné${n > 1 ? 's' : ''}</b>
+      <div class="btn-row"><button class="btn sm mag" id="kSelEdit">${ic('pen')}Éditer ${n > 1 ? 'en série' : ''}</button>${cr ? `<button class="btn ghost sm" id="kSelDup">${ic('copy')}Dupliquer</button><button class="btn ghost sm" id="kSelDel">${ic('trash')}Supprimer</button>` : ''}<button class="btn text sm" id="kSelAll">Tout sélectionner</button><button class="btn text sm" id="kSelNone">Annuler</button></div>
+    </div>
     <div class="kanban" id="kb">${cols.map(([k, l]) => {
       const list = items.filter(c => c.statut === k).sort((a, b) => new Date(a.date_debut || 8e15) - new Date(b.date_debut || 8e15));
-      return `<div class="kcol" data-col="${k}"><h3>${esc(l)}<span class="n">${list.length}</span></h3>${list.map(card).join('')}</div>`;
+      return `<div class="kcol" data-col="${k}"><h3><span>${esc(l)}${COL_HINT[k] ? `<small>${COL_HINT[k]}</small>` : ''}</span><span class="n">${list.length}</span></h3>${list.map(c => card(c, board.sel)).join('')}</div>`;
     }).join('')}</div>
-    <p class="small muted" style="margin-top:12px">Glissez les cartes d'une étape à l'autre. Le passage de « En validation » à « Validé » est réservé à la direction.</p>
+    <p class="small muted" style="margin-top:12px">Clic droit sur une carte pour ses actions. Ctrl clic (ou Cmd clic) pour sélectionner plusieurs cartes, Maj clic pour une plage. Une idée passe seule dans « À produire » dès qu'une date et une heure de diffusion sont fixées.</p>
   </div>`;
   stagger(el);
   $('#kBrands', el).onclick = e => { const b = e.target.closest('button'); if (!b) return; const v = b.dataset.v; board.marques = board.marques.includes(v) ? board.marques.filter(x => x !== v) : [...board.marques, v]; ctx.refresh(true); };
   let qt; $('#kQ', el).oninput = e => { clearTimeout(qt); qt = setTimeout(() => { board.q = e.target.value; const pos = e.target.selectionStart; ctx.refresh(true); const n = $('#kQ', el); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }, 350); };
   const kn = $('#kNew', el); if (kn) kn.onclick = () => ctx.newContent();
   const ki = $('#kIdea', el); if (ki) ki.onclick = () => quickIdea(ctx);
-  el.onclick = e => { const c = e.target.closest('.kcard'); if (c && !c._dragged) ctx.open(c.dataset.id); };
-  $$('.kcard', el).forEach(k => { k.ondragstart = e => { e.dataTransfer.setData('text/plain', k.dataset.id); k.classList.add('dragging'); k._dragged = true; }; k.ondragend = () => { k.classList.remove('dragging'); setTimeout(() => k._dragged = false, 50); }; });
+  const on = (id, fn) => { const b = $('#' + id, el); if (b) b.onclick = fn; };
+  on('kSelEdit', () => startQueue([...board.sel], ctx));
+  on('kSelDup', () => duplicate([...board.sel], ctx));
+  on('kSelDel', () => remove([...board.sel], ctx));
+  on('kSelAll', () => { items.forEach(c => board.sel.add(c.id)); ctx.refresh(true); });
+  on('kSelNone', () => { board.sel.clear(); ctx.refresh(true); });
+
+  /* clic : ouvrir, ou sélectionner (Ctrl/Cmd, Maj, case, ou dès qu'une sélection existe) */
+  const order = () => $$('.kcard', el).map(k => k.dataset.id);
+  el.onclick = e => {
+    const k = e.target.closest('.kcard'); if (!k || k._dragged) return;
+    const id = k.dataset.id;
+    if (e.target.closest('.kmore')) { const r = e.target.closest('.kmore').getBoundingClientRect(); cardMenu(getItem(id), r.left, r.bottom + 6, ctx); return; }
+    if (e.shiftKey && board.anchor) {
+      const o = order(), a = o.indexOf(board.anchor), b = o.indexOf(id);
+      if (a > -1 && b > -1) { o.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(x => board.sel.add(x)); ctx.refresh(true); return; }
+    }
+    if (e.target.closest('.ksel') || e.ctrlKey || e.metaKey || e.shiftKey || board.sel.size) { toggleSel(id); ctx.refresh(true); return; }
+    ctx.open(id);
+  };
+  el.oncontextmenu = e => { const k = e.target.closest('.kcard'); if (!k) return; e.preventDefault(); cardMenu(getItem(k.dataset.id), e.clientX, e.clientY, ctx); };
+  el.onkeydown = e => {
+    const k = e.target.closest('.kcard'); if (!k || e.target !== k) return;
+    if (e.key === 'Enter') { e.preventDefault(); ctx.open(k.dataset.id); }
+    else if (e.key === ' ') { e.preventDefault(); toggleSel(k.dataset.id); ctx.refresh(true); const nk = $(`.kcard[data-id="${k.dataset.id}"]`); if (nk) nk.focus(); }
+    else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); const r = k.getBoundingClientRect(); cardMenu(getItem(k.dataset.id), r.left + 12, r.top + 12, ctx); }
+  };
+  if (!renderBoard._esc) { renderBoard._esc = true; addEventListener('keydown', e => { if (e.key === 'Escape' && board.sel.size && !menuEl && !$('#layer .overlay') && $('#kPanel')) { board.sel.clear(); ctx.refresh(true); } }); }
+
+  $$('.kcard', el).forEach(k => { k.ondragstart = e => { closeMenu(); e.dataTransfer.setData('text/plain', k.dataset.id); k.classList.add('dragging'); k._dragged = true; }; k.ondragend = () => { k.classList.remove('dragging'); setTimeout(() => k._dragged = false, 50); }; });
   $$('.kcol', el).forEach(col => {
     col.ondragover = e => { e.preventDefault(); col.classList.add('over'); };
     col.ondragleave = () => col.classList.remove('over');
     col.ondrop = async e => {
       e.preventDefault(); col.classList.remove('over');
-      const c = getItem(e.dataTransfer.getData('text/plain')); const to = col.dataset.col; if (!c || c.statut === to) return;
+      let c = getItem(e.dataTransfer.getData('text/plain')); const to = col.dataset.col; if (!c || c.statut === to) return;
       const dir = isDirection();
       if (PRE_VALID.includes(c.statut) && !PRE_VALID.includes(to) && !dir) { toast('Seule la direction peut valider un contenu', 'alert'); return; }
       if (to === 'planifie' && !c.date_debut) { toast('Fixez une date de publication avant de planifier', 'alert'); return; }
-      if (c.statut === 'validation' && to === 'redaction' && dir) { ctx.open(c.id); toast('Précisez les modifications attendues dans le contenu', 'msg'); return; }
+      if (c.statut === 'validation' && ['idee', 'a_produire'].includes(to) && dir) { ctx.open(c.id); toast('Utilisez « Demander des modifications » avec un commentaire', 'msg'); return; }
+      /* Idée et À produire sont pilotées par la date de diffusion */
+      if (to === 'a_produire' && !c.date_debut) { const v = await askDate(c); if (!v) return; c = { ...c, date_debut: v }; }
+      if (to === 'validation' && !c.date_debut) { toast('Fixez la date et l\'heure de diffusion avant la validation', 'alert'); return; }
+      if (to === 'idee' && c.date_debut) {
+        if (!await confirmBox('Retirer la date de diffusion ?', 'Une idée n\'a pas de date de diffusion. La date sera effacée et le contenu repassera dans « Idée ».', { ok: 'Retirer la date' })) return;
+        c = { ...c, date_debut: null };
+      }
       try {
         const s = await saveItem({ ...c, statut: to });
-        await addJournal(c.id, 'action', `Déplacé vers « ${statutLabel(to)} »`);
-        if (to === 'validation') addJournal(c.id, 'version', 'Version envoyée en validation', { textes: s.data.textes, hashtags: s.data.hashtags, score: s.data.score });
-        if (c.statut === 'validation' && !PRE_VALID.includes(to)) addJournal(c.id, 'version', 'Version validée', { textes: s.data.textes, hashtags: s.data.hashtags, score: s.data.score });
-        toast(`« ${c.titre} » : ${statutLabel(to)}`, 'board'); ctx.refresh(true);
+        await addJournal(c.id, 'action', `Déplacé vers « ${statutLabel(s.statut)} »`);
+        if (s.statut === 'validation') addJournal(c.id, 'version', 'Version envoyée en validation', { textes: s.data.textes, hashtags: s.data.hashtags, score: s.data.score });
+        if (c.statut === 'validation' && !PRE_VALID.includes(s.statut)) addJournal(c.id, 'version', 'Version validée', { textes: s.data.textes, hashtags: s.data.hashtags, score: s.data.score });
+        toast(`« ${c.titre} » : ${statutLabel(s.statut)}`, 'board'); ctx.refresh(true);
       } catch (err) {}
     };
   });

@@ -5,8 +5,8 @@ import {
   $, $$, esc, clone, S, byKind, getItem, contents, saveItem, deleteItem, addJournal, toast, modal, confirmBox, seg, ic, swap, ring, animateRings, animateBars, stagger,
   BRANDS, SUB_BRANDS, BRAND_KEYS, OBJECTIFS, objLabel, RESEAUX, typeLabel, typeFamily, statutLabel, CIBLES,
   isoDay, fmtDate, fmtDT, addDays, settings, saveSettings, DEFAULT_SETTINGS, isDirection, canCreate, memberName, brandDot, euro, num, pct, download, toLocalInput, fromLocalInput
-} from './core.js?v=5';
-import { analyse, radarSVG, animateRadar, highlight, scoreLabel, CRITERES, DEFAULT_POIDS, poids } from './analysis.js?v=5';
+} from './core.js?v=6';
+import { analyse, radarSVG, animateRadar, highlight, scoreLabel, CRITERES, DEFAULT_POIDS, poids } from './analysis.js?v=6';
 
 const bc = m => (BRANDS[m] || BRANDS.groupe).color;
 const head = (lab, title, p = '', right = '') => `<div class="panel-head"><div><span class="label">${lab}</span><h2 style="margin-top:4px">${title}</h2>${p ? `<p>${p}</p>` : ''}</div>${right}</div>`;
