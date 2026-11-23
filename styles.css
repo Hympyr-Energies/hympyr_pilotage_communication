@@ -440,3 +440,49 @@ html[data-theme="dark"] .pv.ig .tx .ht{color:#E0F1FF}
   .panel,.page-head{break-inside:avoid}
   h1,h2,h3{color:#1D2226!important}
 }
+
+/* board : selection, card actions, context menu, edit queue */
+.kcard{position:relative;outline:none;transition:box-shadow .25s,transform .25s,background .25s}
+.kcard:focus-visible{box-shadow:0 0 0 2px var(--link)}
+.kcard .kt{display:flex;gap:8px;align-items:flex-start}
+.kcard .kt b{flex:1;min-width:0}
+.kchk,.kmore{flex:none;display:grid;place-items:center;width:22px;height:22px;border-radius:7px;border:1px solid var(--hair);background:transparent;color:transparent;cursor:pointer;padding:0;transition:opacity .2s,background .2s,color .2s,border-color .2s}
+.kchk svg,.kmore svg{width:14px;height:14px}
+.kchk{opacity:0;margin-left:-2px}
+.kmore{opacity:0;border-color:transparent;color:var(--muted)}
+.kcard:hover .kchk,.kcard:hover .kmore,.kcard:focus-within .kchk,.kcard:focus-within .kmore,.kanban.selecting .kchk{opacity:1}
+.kmore:hover{background:var(--tile);color:var(--head)}
+.kcard.sel{box-shadow:0 0 0 2px var(--link);background:color-mix(in srgb,var(--link) 8%,var(--tile))}
+.kcard.sel .kchk{opacity:1;background:var(--link);border-color:var(--link);color:#fff}
+.kanban.selecting .kcard{cursor:pointer}
+.kret{align-self:flex-start}
+@media (hover:none){.kchk,.kmore{opacity:1}}
+.ctxm{position:fixed;z-index:120;min-width:230px;max-width:300px;max-height:calc(100vh - 16px);overflow:auto;padding:6px;border-radius:16px;display:flex;flex-direction:column;opacity:0;transform:scale(.96);transition:opacity .16s ease,transform .2s cubic-bezier(.2,.8,.2,1)}
+.ctxm,.selbar{background:color-mix(in srgb,var(--bg) 90%,transparent)}
+.ctxm.on{opacity:1;transform:none}
+.ctxm.off{opacity:0;transform:scale(.97)}
+.ctxm button{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border:0;border-radius:10px;background:transparent;color:var(--text);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.ctxm button svg{width:15px;height:15px;flex:none;color:var(--muted)}
+.ctxm button span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ctxm button em{font-style:normal;font-size:11px;color:var(--muted)}
+.ctxm button:hover,.ctxm button:focus-visible{background:color-mix(in srgb,var(--link) 12%,transparent);outline:none}
+.ctxm button.danger,.ctxm button.danger svg{color:var(--err)}
+.ctxm button.danger:hover,.ctxm button.danger:focus-visible{background:color-mix(in srgb,var(--err) 12%,transparent)}
+.ctxm button[disabled]{opacity:.4;cursor:default}
+.ctxm hr{border:0;border-top:1px solid var(--hair);margin:5px 4px}
+.ctxm .ctxh{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:6px 10px 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.selbar{position:fixed;left:0;right:0;margin:0 auto;width:max-content;bottom:24px;z-index:60;display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;padding:8px 10px 8px 16px;border-radius:999px;max-width:calc(100vw - 32px);transform:translateY(140%);opacity:0;pointer-events:none;transition:transform .45s cubic-bezier(.2,.8,.2,1),opacity .3s}
+.selbar.on{transform:none;opacity:1;pointer-events:auto}
+.selbar b{font-size:13px;margin-right:4px;white-space:nowrap}
+.btn.danger-t{color:var(--err)}
+.ticket-fab{transition:opacity .3s,transform .3s}
+body:has(.selbar.on) .ticket-fab{opacity:0;pointer-events:none;transform:translateY(12px)}
+.qbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;padding:10px 12px;border-color:color-mix(in srgb,var(--link) 40%,transparent)}
+.qbar .qmid{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
+.qbar .qmid b{font-size:13px}
+.qdots{display:flex;gap:5px;flex-wrap:wrap;justify-content:center}
+.qdots button{width:8px;height:8px;border-radius:50%;border:0;padding:0;background:var(--hair);cursor:pointer;transition:background .25s,transform .25s}
+.qdots button.done{background:color-mix(in srgb,var(--link) 45%,transparent)}
+.qdots button.on{background:var(--link);transform:scale(1.35)}
+@media (hover:none){.ctxm button em{display:none}}
+@media (max-width:760px){.selbar{bottom:96px;flex-wrap:nowrap;gap:6px;padding:6px 6px 6px 14px}.selbar .bl{display:none}.selbar .btn.sm{padding-inline:10px}.ctxm{max-width:calc(100vw - 16px)}.qbar{flex-wrap:wrap}.qbar .qmid{order:-1;width:100%}}

@@ -4,15 +4,16 @@
 import {
   $, $$, esc, S, byKind, getItem, contents, saveItem, deleteItem, addJournal, toast, modal, confirmBox, seg, ic, swap, ring, animateRings, animateBars, stagger,
   BRANDS, SUB_BRANDS, BRAND_KEYS, STATUTS, statutLabel, PRE_VALID, typeLabel, typeFamily, objLabel, cibleLabel, RESEAUX, TYPES,
-  isoDay, fmtDate, fmtDT, fmtShort, startOfWeek, addDays, sameDay, holidays, settings, isDirection, canCreate, memberName, brandDot, pct, num, toLocalInput, fromLocalInput
-} from './core.js?v=5';
-import { scoreLabel } from './analysis.js?v=5';
+  isoDay, fmtDate, fmtDT, fmtShort, startOfWeek, addDays, sameDay, holidays, settings, isDirection, canCreate, memberName, brandDot, pct, num, toLocalInput, fromLocalInput, Q, setQueue
+} from './core.js?v=6';
+import { scoreLabel } from './analysis.js?v=6';
+import { openComments, openHistory } from './editor.js?v=6';
 
 const bc = m => (BRANDS[m] || BRANDS.groupe).color;
 const scope = univ => univ === 'groupe' ? contents() : contents(univ);
 const card = (c) => `<div class="tile kcard" draggable="true" data-id="${c.id}" style="--bc:${bc(c.marque)}"><b>${esc(c.titre || 'Sans titre')}</b>
   <div class="m">${brandDot(c.marque)}<span class="chip gray">${esc(typeLabel(c.data.type))}</span>${(c.data.reseaux || []).map(n => `<span class="chip gray">${n === 'linkedin' ? 'LinkedIn' : 'Instagram'}</span>`).join('')}${c.data.score != null ? `<span class="chip ${c.data.score >= 70 ? 'ok' : c.data.score >= 50 ? 'warn' : 'err'}">${c.data.score}</span>` : ''}</div>
-  <span class="d">${c.date_debut ? fmtDT(c.date_debut) : 'Date à définir'}${c.data.retour && c.statut === 'redaction' ? ' · retour direction' : ''}</span></div>`;
+  <span class="d">${c.date_debut ? fmtDT(c.date_debut) : 'Date à définir'}${c.data.retour && c.statut === 'a_produire' ? ' · modifications demandées' : ''}</span></div>`;
 
 /* =========================================================
    DASHBOARD (groupe & brand)
@@ -211,44 +212,182 @@ export function renderCalendar(el, ctx) {
 /* =========================================================
    BOARD (kanban)
    ========================================================= */
-const board = { marques: [...BRAND_KEYS], q: '' };
+const MOD = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘' : 'Ctrl';
+const board = { marques: [...BRAND_KEYS], q: '', sel: new Set() };
+const kcard = c => `<div class="tile kcard${board.sel.has(c.id) ? ' sel' : ''}" draggable="true" data-id="${c.id}" style="--bc:${bc(c.marque)}" tabindex="0">
+  <div class="kt"><button type="button" class="kchk" data-chk aria-label="Sélectionner « ${esc(c.titre || 'Sans titre')} »" aria-pressed="${board.sel.has(c.id)}">${ic('check')}</button><b>${esc(c.titre || 'Sans titre')}</b><button type="button" class="kmore" data-more aria-label="Actions">${ic('more')}</button></div>
+  <div class="m">${brandDot(c.marque)}<span class="chip gray">${esc(typeLabel(c.data.type))}</span>${(c.data.reseaux || []).map(n => `<span class="chip gray">${n === 'linkedin' ? 'LinkedIn' : 'Instagram'}</span>`).join('')}${c.data.score != null ? `<span class="chip ${c.data.score >= 70 ? 'ok' : c.data.score >= 50 ? 'warn' : 'err'}">${c.data.score}</span>` : ''}</div>
+  ${c.data.retour && c.statut === 'a_produire' ? `<span class="chip warn kret">${ic('msg')}Modifications demandées</span>` : ''}
+  <span class="d">${c.date_debut ? fmtDT(c.date_debut) : 'Date de diffusion à définir'}</span></div>`;
+
+/* move a content to another stage, with the workflow rules */
+async function moveTo(c, to, ctx) {
+  if (!c || c.statut === to) return;
+  const dir = isDirection();
+  if (PRE_VALID.includes(c.statut) && !PRE_VALID.includes(to) && !dir) { toast('Seule la direction peut valider un contenu', 'alert'); return; }
+  if (to === 'planifie' && !c.date_debut) { toast('Fixez une date de publication avant de planifier', 'alert'); return; }
+  if (c.statut === 'validation' && to === 'a_produire' && dir) { ctx.open(c.id); toast('Indiquez les modifications attendues puis cliquez sur « Demander des modifications »', 'msg'); return; }
+  let extra = {};
+  if (to === 'a_produire' && !c.date_debut) { const d = await askDate(c); if (!d) return; extra.date_debut = d; }
+  if (to === 'idee' && c.date_debut) {
+    if (!await confirmBox('Repasser en idée ?', `Une idée n'a pas encore de date de diffusion : la date du ${fmtDT(c.date_debut)} sera retirée.`, { ok: 'Retirer la date' })) return;
+    extra.date_debut = null;
+  }
+  try {
+    const s = await saveItem({ ...c, ...extra, statut: to }, { silent: false });
+    await addJournal(c.id, 'action', `Déplacé vers « ${statutLabel(s.statut)} »`);
+    if (s.statut === 'validation') addJournal(c.id, 'version', 'Version envoyée en validation', { textes: s.data.textes, hashtags: s.data.hashtags, score: s.data.score });
+    if (c.statut === 'validation' && !PRE_VALID.includes(s.statut)) addJournal(c.id, 'version', 'Version validée', { textes: s.data.textes, hashtags: s.data.hashtags, score: s.data.score });
+    toast(`« ${c.titre} » : ${statutLabel(s.statut)}`, 'board'); ctx.refresh(true);
+  } catch (err) {}
+}
+function askDate(c) {
+  return new Promise(res => {
+    let v = null;
+    const { el, close } = modal(`<div class="modal-head"><div><span class="label">À produire</span><h2 style="margin-top:6px">Date et heure de diffusion</h2><p>Un contenu passe à produire dès que sa date de diffusion est fixée.</p></div><button class="icon-btn" data-close aria-label="Fermer">${ic('x')}</button></div>
+      <label class="field"><span>Diffusion de « ${esc(c.titre || 'Sans titre')} »</span><input class="input" type="datetime-local" id="adD"></label>
+      <div class="modal-foot"><button class="btn ghost" data-close>Annuler</button><button class="btn mag" id="adOk">${ic('cal')}Fixer la date</button></div>`, { onClose: () => res(v) });
+    const i = $('#adD', el); setTimeout(() => i.focus(), 60);
+    $('#adOk', el).onclick = () => { if (!i.value) { i.classList.add('bad'); i.focus(); return; } v = fromLocalInput(i.value); close(); };
+  });
+}
+
+/* context menu */
+function ctxMenu(x, y, items, anchor) {
+  closeCtx();
+  const m = document.createElement('div'); m.className = 'ctxm glass'; m.setAttribute('role', 'menu');
+  m.innerHTML = items.map((it, k) => it === '-' ? '<hr>' : it.head ? `<span class="ctxh">${esc(it.head)}</span>` : `<button type="button" role="menuitem" data-k="${k}" class="${it.danger ? 'danger' : ''}" ${it.disabled ? 'disabled' : ''}>${ic(it.i || 'right')}<span>${esc(it.l)}</span>${it.hint ? `<em>${esc(it.hint)}</em>` : ''}</button>`).join('');
+  document.body.appendChild(m);
+  const r = { width: m.offsetWidth, height: m.offsetHeight }, W = innerWidth, H = innerHeight;
+  m.style.left = Math.max(8, Math.min(x, W - r.width - 8)) + 'px'; m.style.top = Math.max(8, Math.min(y, H - r.height - 8)) + 'px';
+  m.style.transformOrigin = `${x > W - r.width - 8 ? 'right' : 'left'} ${y > H - r.height - 8 ? 'bottom' : 'top'}`;
+  requestAnimationFrame(() => m.classList.add('on'));
+  const btns = [...m.querySelectorAll('button:not([disabled])')]; if (btns[0]) btns[0].focus({ preventScroll: true });
+  m.onclick = e => { const b = e.target.closest('[data-k]'); if (!b) return; closeCtx(); items[+b.dataset.k].run(); };
+  m.onkeydown = e => {
+    const i = btns.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); btns[(i + (e.key === 'ArrowDown' ? 1 : -1) + btns.length) % btns.length].focus(); }
+    else if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); closeCtx(); if (anchor) anchor.focus(); }
+  };
+  const away = e => { if (!m.contains(e.target)) closeCtx(); };
+  setTimeout(() => { addEventListener('pointerdown', away, true); addEventListener('scroll', closeCtx, true); addEventListener('resize', closeCtx); }, 0);
+  m._off = () => { removeEventListener('pointerdown', away, true); removeEventListener('scroll', closeCtx, true); removeEventListener('resize', closeCtx); };
+}
+function closeCtx() { const m = document.querySelector('.ctxm'); if (!m) return; m._off && m._off(); m.classList.remove('on'); m.classList.add('off'); setTimeout(() => m.remove(), 160); }
+
+/* edit queue & bulk actions */
+function editQueue(ids, ctx) {
+  const list = ids.map(getItem).filter(Boolean).sort((a, b) => new Date(a.date_debut || 8e15) - new Date(b.date_debut || 8e15));
+  if (!list.length) return;
+  setQueue(list.map(c => c.id)); board.sel.clear();
+  if (list.length > 1) toast(`Liste de ${list.length} contenus : passez de l'un à l'autre avec Précédent et Suivant`, 'list');
+  ctx.open(list[0].id);
+}
+async function bulkDelete(ids, ctx) {
+  const list = ids.map(getItem).filter(Boolean); if (!list.length) return;
+  const one = list.length === 1;
+  if (!await confirmBox(one ? `Supprimer « ${list[0].titre || 'Sans titre'} » ?` : `Supprimer ${list.length} contenus ?`, `${one ? 'Le contenu, son historique et ses commentaires seront supprimés' : 'Ces contenus, leur historique et leurs commentaires seront supprimés'} définitivement. Cette action est irréversible. Pour les garder hors du tableau sans les perdre, utilisez plutôt « Archiver ».`, { ok: one ? 'Supprimer' : `Supprimer les ${list.length}`, danger: true })) return;
+  let n = 0; for (const c of list) { try { await deleteItem(c.id); n++; board.sel.delete(c.id); } catch (e) { break; } }
+  if (Q.ids.length) setQueue(Q.ids.filter(id => getItem(id)));
+  if (n) toast(`${n} contenu${n > 1 ? 's' : ''} supprimé${n > 1 ? 's' : ''}`, 'trash'); ctx.refresh(true);
+}
+async function bulkArchive(ids, ctx) {
+  const list = ids.map(getItem).filter(Boolean); let n = 0;
+  for (const c of list) { try { await saveItem({ ...c, statut: 'archive' }); addJournal(c.id, 'action', 'Archivé'); n++; board.sel.delete(c.id); } catch (e) { break; } }
+  if (n) toast(`${n} contenu${n > 1 ? 's' : ''} archivé${n > 1 ? 's' : ''}`, 'folder'); ctx.refresh(true);
+}
+async function duplicate(c, ctx) {
+  try { const s = await saveItem({ kind: 'contenu', marque: c.marque, titre: (c.titre || 'Sans titre') + ' (copie)', statut: 'idee', date_debut: null, parent_id: c.id, data: { ...JSON.parse(JSON.stringify(c.data)), retour: '', stats: {} } });
+    await addJournal(s.id, 'action', `Dupliqué depuis « ${c.titre} »`); toast('Copie créée dans les idées', 'copy'); ctx.refresh(true); } catch (e) {}
+}
+
 export function renderBoard(el, ctx) {
   const cols = STATUTS.filter(s => s[0] !== 'archive');
   const items = contents().filter(c => board.marques.includes(c.marque) && (!board.q || (c.titre || '').toLowerCase().includes(board.q.toLowerCase())));
+  [...board.sel].forEach(id => { if (!items.some(c => c.id === id)) board.sel.delete(id); });
+  const cr = canCreate();
   el.innerHTML = `<div class="panel glass" data-st>
     <div class="cal-tools"><div class="btn-row"><div class="tagsel" id="kBrands">${BRAND_KEYS.map(b => `<button type="button" data-v="${b}" class="${board.marques.includes(b) ? 'on' : ''}">${esc(BRANDS[b].court)}</button>`).join('')}</div></div>
-      <div class="btn-row"><input class="input" id="kQ" placeholder="Filtrer par titre" value="${esc(board.q)}" style="min-height:38px;width:220px">${canCreate() ? `<button class="btn ghost sm mag" id="kIdea">${ic('idea')}Idée</button><button class="btn sm mag" id="kNew">${ic('plus')}Nouveau contenu</button>` : ''}</div></div>
-    <div class="kanban" id="kb">${cols.map(([k, l]) => {
+      <div class="btn-row"><input class="input" id="kQ" placeholder="Filtrer par titre" value="${esc(board.q)}" style="min-height:38px;width:220px">${cr ? `<button class="btn ghost sm mag" id="kIdea">${ic('idea')}Idée</button><button class="btn sm mag" id="kNew">${ic('plus')}Nouveau contenu</button>` : ''}</div></div>
+    <div class="kanban${board.sel.size ? ' selecting' : ''}" id="kb">${cols.map(([k, l]) => {
       const list = items.filter(c => c.statut === k).sort((a, b) => new Date(a.date_debut || 8e15) - new Date(b.date_debut || 8e15));
-      return `<div class="kcol" data-col="${k}"><h3>${esc(l)}<span class="n">${list.length}</span></h3>${list.map(card).join('')}</div>`;
+      return `<div class="kcol" data-col="${k}"><h3>${esc(l)}<span class="n">${list.length}</span></h3>${list.map(kcard).join('')}</div>`;
     }).join('')}</div>
-    <p class="small muted" style="margin-top:12px">Glissez les cartes d'une étape à l'autre. Le passage de « En validation » à « Validé » est réservé à la direction.</p>
-  </div>`;
+    <p class="small muted" style="margin-top:12px">Une idée passe à produire dès que sa date et son heure de diffusion sont fixées. Clic droit sur une carte pour ses actions ; ${MOD === '⌘' ? 'Cmd' : 'Ctrl'} + clic ou la case de chaque carte pour en sélectionner plusieurs. Seule la direction valide.</p>
+  </div>
+  <div class="selbar glass" id="kSel" aria-live="polite"></div>`;
   stagger(el);
+  const kb = $('#kb', el), bar = $('#kSel', el);
+  const ids = () => [...board.sel];
+  const paintSel = () => {
+    $$('.kcard', kb).forEach(k => { const on = board.sel.has(k.dataset.id); k.classList.toggle('sel', on); $('[data-chk]', k).setAttribute('aria-pressed', on); });
+    kb.classList.toggle('selecting', board.sel.size > 0);
+    const n = board.sel.size;
+    bar.innerHTML = n ? `<b>${n} sélectionné${n > 1 ? 's' : ''}</b>
+      <button class="btn sm mag" data-b="edit">${ic('pen')}${n > 1 ? 'Éditer à la suite' : 'Éditer'}</button>
+      ${cr ? `<button class="btn ghost sm mag" data-b="arch" aria-label="Archiver">${ic('folder')}<span class="bl">Archiver</span></button><button class="btn ghost sm mag danger-t" data-b="del" aria-label="Supprimer">${ic('trash')}<span class="bl">Supprimer</span></button>` : ''}
+      <button class="btn text sm bl" data-b="all">Tout sélectionner</button><button class="icon-btn sm" data-b="none" aria-label="Annuler la sélection" title="Annuler la sélection (Échap)">${ic('x')}</button>` : '';
+    bar.classList.toggle('on', n > 0);
+  };
+  const toggle = id => { board.sel.has(id) ? board.sel.delete(id) : board.sel.add(id); paintSel(); };
+  let anchor = null;
+  const rangeTo = id => { const order = $$('.kcard', kb).map(k => k.dataset.id); const a = order.indexOf(anchor), b = order.indexOf(id); if (a < 0) { toggle(id); return; } order.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(x => board.sel.add(x)); paintSel(); };
+  paintSel();
+
+  bar.onclick = e => { const b = e.target.closest('[data-b]'); if (!b) return; const a = b.dataset.b;
+    if (a === 'edit') editQueue(ids(), ctx); else if (a === 'del') bulkDelete(ids(), ctx); else if (a === 'arch') bulkArchive(ids(), ctx);
+    else if (a === 'all') { items.forEach(c => board.sel.add(c.id)); paintSel(); } else if (a === 'none') { board.sel.clear(); paintSel(); } };
+  const onKey = e => { if (!el.isConnected) { removeEventListener('keydown', onKey); return; } if (e.key === 'Escape' && board.sel.size && !document.querySelector('.ctxm,.overlay')) { board.sel.clear(); paintSel(); } };
+  addEventListener('keydown', onKey);
+
   $('#kBrands', el).onclick = e => { const b = e.target.closest('button'); if (!b) return; const v = b.dataset.v; board.marques = board.marques.includes(v) ? board.marques.filter(x => x !== v) : [...board.marques, v]; ctx.refresh(true); };
   let qt; $('#kQ', el).oninput = e => { clearTimeout(qt); qt = setTimeout(() => { board.q = e.target.value; const pos = e.target.selectionStart; ctx.refresh(true); const n = $('#kQ', el); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }, 350); };
   const kn = $('#kNew', el); if (kn) kn.onclick = () => ctx.newContent();
   const ki = $('#kIdea', el); if (ki) ki.onclick = () => quickIdea(ctx);
-  el.onclick = e => { const c = e.target.closest('.kcard'); if (c && !c._dragged) ctx.open(c.dataset.id); };
-  $$('.kcard', el).forEach(k => { k.ondragstart = e => { e.dataTransfer.setData('text/plain', k.dataset.id); k.classList.add('dragging'); k._dragged = true; }; k.ondragend = () => { k.classList.remove('dragging'); setTimeout(() => k._dragged = false, 50); }; });
+
+  const openMenu = (card, x, y) => {
+    const c = getItem(card.dataset.id); if (!c) return;
+    if (board.sel.size > 1 && board.sel.has(c.id)) {
+      const n = board.sel.size;
+      return ctxMenu(x, y, [{ head: `${n} contenus sélectionnés` },
+        { l: 'Éditer à la suite', i: 'pen', hint: `${n} contenus`, run: () => editQueue(ids(), ctx) },
+        ...(cr ? [{ l: 'Archiver la sélection', i: 'folder', run: () => bulkArchive(ids(), ctx) }, '-', { l: `Supprimer les ${n}`, i: 'trash', danger: true, run: () => bulkDelete(ids(), ctx) }] : []),
+        '-', { l: 'Annuler la sélection', i: 'x', run: () => { board.sel.clear(); paintSel(); } }], card);
+    }
+    const dir = isDirection();
+    const moves = cols.map(s => s[0]).filter(s => s !== c.statut && (dir || !(PRE_VALID.includes(c.statut) && !PRE_VALID.includes(s))) && (s !== 'planifie' || c.date_debut));
+    ctxMenu(x, y, [{ head: c.titre || 'Sans titre' },
+      { l: cr ? 'Modifier' : 'Ouvrir', i: 'pen', hint: 'Entrée', run: () => ctx.open(c.id) },
+      { l: board.sel.has(c.id) ? 'Retirer de la sélection' : 'Sélectionner', i: 'select', hint: MOD + ' clic', run: () => toggle(c.id) },
+      ...(board.sel.size && !board.sel.has(c.id) ? [{ l: `Ajouter et éditer les ${board.sel.size + 1} à la suite`, i: 'list', run: () => editQueue([...ids(), c.id], ctx) }] : []),
+      ...(cr ? [{ l: 'Dupliquer', i: 'copy', run: () => duplicate(c, ctx) }] : []),
+      '-', { head: 'Déplacer vers' },
+      ...moves.map(s => ({ l: statutLabel(s), i: 'right', run: () => moveTo(c, s, ctx) })),
+      '-',
+      { l: 'Commentaires', i: 'msg', run: () => openComments(c) },
+      { l: 'Historique et versions', i: 'history', run: () => openHistory(c) },
+      ...(cr ? ['-', { l: 'Archiver', i: 'folder', run: () => bulkArchive([c.id], ctx) }, { l: 'Supprimer', i: 'trash', danger: true, run: () => bulkDelete([c.id], ctx) }] : [])], card);
+  };
+
+  kb.onclick = e => {
+    const card = e.target.closest('.kcard'); if (!card || card._dragged) return; const id = card.dataset.id;
+    if (e.target.closest('[data-more]')) { const r = e.target.closest('[data-more]').getBoundingClientRect(); openMenu(card, r.left, r.bottom + 6); return; }
+    if (e.shiftKey && anchor) { rangeTo(id); return; }
+    if (e.target.closest('[data-chk]') || e.metaKey || e.ctrlKey || board.sel.size) { anchor = id; toggle(id); return; }
+    ctx.open(id);
+  };
+  kb.oncontextmenu = e => { const card = e.target.closest('.kcard'); if (!card) return; e.preventDefault(); openMenu(card, e.clientX, e.clientY); };
+  kb.onkeydown = e => { const card = e.target.closest('.kcard'); if (!card || e.target !== card) return;
+    if (e.key === 'Enter') { e.preventDefault(); ctx.open(card.dataset.id); }
+    else if (e.key === ' ') { e.preventDefault(); toggle(card.dataset.id); }
+    else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); const r = card.getBoundingClientRect(); openMenu(card, r.left + 16, r.top + 24); }
+    else if ((e.key === 'Delete' || e.key === 'Backspace') && cr) { e.preventDefault(); bulkDelete(board.sel.has(card.dataset.id) ? ids() : [card.dataset.id], ctx); } };
+
+  $$('.kcard', el).forEach(k => { k.ondragstart = e => { e.dataTransfer.setData('text/plain', k.dataset.id); k.classList.add('dragging'); k._dragged = true; closeCtx(); }; k.ondragend = () => { k.classList.remove('dragging'); setTimeout(() => k._dragged = false, 50); }; });
   $$('.kcol', el).forEach(col => {
     col.ondragover = e => { e.preventDefault(); col.classList.add('over'); };
     col.ondragleave = () => col.classList.remove('over');
-    col.ondrop = async e => {
-      e.preventDefault(); col.classList.remove('over');
-      const c = getItem(e.dataTransfer.getData('text/plain')); const to = col.dataset.col; if (!c || c.statut === to) return;
-      const dir = isDirection();
-      if (PRE_VALID.includes(c.statut) && !PRE_VALID.includes(to) && !dir) { toast('Seule la direction peut valider un contenu', 'alert'); return; }
-      if (to === 'planifie' && !c.date_debut) { toast('Fixez une date de publication avant de planifier', 'alert'); return; }
-      if (c.statut === 'validation' && to === 'redaction' && dir) { ctx.open(c.id); toast('Précisez les modifications attendues dans le contenu', 'msg'); return; }
-      try {
-        const s = await saveItem({ ...c, statut: to });
-        await addJournal(c.id, 'action', `Déplacé vers « ${statutLabel(to)} »`);
-        if (to === 'validation') addJournal(c.id, 'version', 'Version envoyée en validation', { textes: s.data.textes, hashtags: s.data.hashtags, score: s.data.score });
-        if (c.statut === 'validation' && !PRE_VALID.includes(to)) addJournal(c.id, 'version', 'Version validée', { textes: s.data.textes, hashtags: s.data.hashtags, score: s.data.score });
-        toast(`« ${c.titre} » : ${statutLabel(to)}`, 'board'); ctx.refresh(true);
-      } catch (err) {}
-    };
+    col.ondrop = e => { e.preventDefault(); col.classList.remove('over'); moveTo(getItem(e.dataTransfer.getData('text/plain')), col.dataset.col, ctx); };
   });
 }
 

@@ -4,11 +4,11 @@
 import {
   sb, $, $$, esc, root, EASE, RM, store, S, loadAll, byKind, getItem, contents, saveItem, addJournal, toast, modal, seg, segSet, setupInd, setupGlide, place, replaceInd,
   ic, animOut, stagger, setTheme, syncThemeLabel, logoHTML, BRANDS, BRAND_KEYS, statutLabel, fmtDT, fmtDate, isDirection, canCreate, brandDot, onChange
-} from './core.js?v=5';
-import { renderEditor } from './editor.js?v=5';
-import { renderModeles } from './templates.js?v=5';
-import { renderDashboard, renderCalendar, renderBoard, renderValidation, renderDemandes, renderInterne, demandFields, readDemand } from './views-main.js?v=5';
-import { renderAnalyser, renderComparer, renderPerformances, renderHashtags, renderPersonas, renderVisuels, renderCampagnes, renderEvenements, renderPrint, renderPresse, renderStats, renderBudget, renderRapports, renderReglages } from './views-more.js?v=5';
+} from './core.js?v=6';
+import { renderEditor } from './editor.js?v=6';
+import { renderModeles } from './templates.js?v=6';
+import { renderDashboard, renderCalendar, renderBoard, renderValidation, renderDemandes, renderInterne, demandFields, readDemand } from './views-main.js?v=6';
+import { renderAnalyser, renderComparer, renderPerformances, renderHashtags, renderPersonas, renderVisuels, renderCampagnes, renderEvenements, renderPrint, renderPresse, renderStats, renderBudget, renderRapports, renderReglages } from './views-more.js?v=6';
 
 const NAV = {
   groupe: [
@@ -136,7 +136,7 @@ function notifs() {
   const now = new Date(), out = [];
   const cs = contents();
   if (isDirection()) cs.filter(c => c.statut === 'validation').forEach(c => out.push({ id: 'v' + c.id, ic: 'check', t: 'À valider', s: c.titre, open: c.id }));
-  if (canCreate()) cs.filter(c => c.statut === 'redaction' && c.data.retour).forEach(c => out.push({ id: 'r' + c.id + c.maj_le, ic: 'msg', t: 'Modifications demandées', s: c.titre, open: c.id }));
+  if (canCreate()) cs.filter(c => c.statut === 'a_produire' && c.data.retour).forEach(c => out.push({ id: 'r' + c.id + c.maj_le, ic: 'msg', t: 'Modifications demandées', s: c.titre, open: c.id }));
   cs.filter(c => c.statut === 'a_planifier').forEach(c => out.push({ id: 'p' + c.id, ic: 'cal', t: 'Validé, à planifier', s: c.titre, open: c.id }));
   cs.filter(c => c.statut === 'planifie' && c.date_debut && new Date(c.date_debut) - now < 48 * 36e5 && new Date(c.date_debut) > now - 24 * 36e5).forEach(c => out.push({ id: 'd' + c.id + c.date_debut, ic: 'clock', t: 'À publier bientôt', s: `${c.titre} · ${fmtDT(c.date_debut)}`, open: c.id }));
   cs.filter(c => c.date_debut && new Date(c.date_debut) < now && !['publie', 'archive'].includes(c.statut)).forEach(c => out.push({ id: 'l' + c.id, ic: 'alert', t: 'En retard', s: c.titre, open: c.id }));
@@ -234,6 +234,7 @@ async function enterApp(session) {
   setTimeout(() => replaceInd(), 650);
   updateBell();
   if (isDirection()) { const n = contents().filter(c => c.statut === 'validation').length; if (n) setTimeout(() => toast(`${n} contenu${n > 1 ? 's' : ''} en attente de votre validation`, 'check'), 900); }
+  if (canCreate()) { const n = contents().filter(c => c.statut === 'a_produire' && c.data.retour).length; if (n) setTimeout(() => toast(`La direction demande des modifications sur ${n} contenu${n > 1 ? 's' : ''}`, 'msg'), 1400); }
 }
 $('#loginForm').addEventListener('submit', async e => {
   e.preventDefault(); const em = $('#email'), pw = $('#password'), msg = $('#loginMsg'), btn = $('#loginBtn');

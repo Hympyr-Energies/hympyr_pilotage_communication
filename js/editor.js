@@ -4,12 +4,12 @@
 import {
   $, $$, esc, clone, S, byKind, getItem, saveItem, deleteItem, addJournal, journal, toast, modal, confirmBox, seg, segSet, ic, swap, animateRings,
   BRANDS, SUB_BRANDS, BRAND_KEYS, TYPES, typeLabel, typeFamily, RESEAUX, OBJECTIFS, objLabel, CIBLES, STATUTS, statutLabel, PRE_VALID,
-  toLocalInput, fromLocalInput, fmtDT, fmtDate, isDirection, canCreate, memberName, settings, ring, stagger, uid, brandDot
-} from './core.js?v=5';
-import { analyse, radarSVG, animateRadar, scoreLabel, CRITERES } from './analysis.js?v=5';
-import { applyTemplate, pickTemplateFor, saveAsTemplate, placeholders } from './templates.js?v=5';
+  toLocalInput, fromLocalInput, fmtDT, fmtDate, isDirection, canCreate, memberName, settings, ring, stagger, uid, brandDot, Q, setQueue
+} from './core.js?v=6';
+import { analyse, radarSVG, animateRadar, scoreLabel, CRITERES } from './analysis.js?v=6';
+import { applyTemplate, pickTemplateFor, saveAsTemplate, placeholders } from './templates.js?v=6';
 
-const blank = marque => ({ kind: 'contenu', marque, titre: '', statut: 'redaction', date_debut: null, data: { type: 'publication', cible: ['professionnels'], objectif: 'pedagogique', reseaux: ['linkedin'], textes: { linkedin: '', instagram: '', principal: '' }, hashtags: [], lien: '', utm: true, visuels: [], campagne_id: '', interne: { canaux: [], lecture: false, lus: 0, total: 0 }, mentions_ok: false } });
+const blank = marque => ({ kind: 'contenu', marque, titre: '', statut: 'idee', date_debut: null, data: { type: 'publication', cible: ['professionnels'], objectif: 'pedagogique', reseaux: ['linkedin'], textes: { linkedin: '', instagram: '', principal: '' }, hashtags: [], lien: '', utm: true, visuels: [], campagne_id: '', interne: { canaux: [], lecture: false, lus: 0, total: 0 }, mentions_ok: false } });
 const slug = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 export const isSocial = c => typeFamily((c.data || {}).type) === 'social';
 export function textFor(c, net) { const t = (c.data || {}).textes || {}; return isSocial(c) ? (t[net] || '') : (t.principal || ''); }
@@ -61,9 +61,10 @@ function draw() {
         ${canCreate() ? `<button class="btn ghost sm mag" id="edNew">${ic('plus')}Nouveau</button><button class="btn ghost sm mag" id="edTpl">${ic('layers')}Partir d'un modèle</button><button class="btn ghost sm mag" id="edSaveTpl" title="Réutiliser ce contenu comme trame">${ic('copy')}Enregistrer comme modèle</button>` : ''}
       </div>
     </div>
+    ${queueBar()}
     ${d.consignes ? `<div class="tile" style="margin-top:14px;padding:12px 14px;border-color:color-mix(in srgb,var(--accent) 45%,transparent)"><span class="label">Consignes du modèle</span><p style="margin-top:4px;font-size:13.5px;white-space:pre-wrap">${esc(d.consignes)}</p></div>` : ''}
     <div id="edPh"></div>
-    ${d.retour && c.statut === 'redaction' ? `<div class="tile" style="margin-top:14px;padding:12px 14px;border-color:color-mix(in srgb,var(--warn) 50%,transparent)"><span class="label" style="color:var(--warn)">Retour de la direction</span><p style="margin-top:4px;font-size:13.5px">${esc(d.retour)}</p></div>` : ''}
+    ${d.retour && ['a_produire', 'redaction'].includes(c.statut) ? `<div class="tile" style="margin-top:14px;padding:12px 14px;border-color:color-mix(in srgb,var(--warn) 50%,transparent)"><span class="label" style="color:var(--warn)">Retour de la direction</span><p style="margin-top:4px;font-size:13.5px">${esc(d.retour)}</p></div>` : ''}
   </div>
   <div class="split">
     <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
@@ -146,7 +147,7 @@ function wire() {
   const nw = $('#edNew', el); if (nw) nw.onclick = () => E.ctx.go(E.ctx.univ, 'creer', null, {}, true);
   const tp = $('#edTpl', el); if (tp) tp.onclick = pickTemplate;
   const st = $('#edSaveTpl', el); if (st) st.onclick = () => saveAsTemplate(E.c);
-  phBanner();
+  phBanner(); bindQueue();
   const ns = $('#netSeg', el);
   if (ns) seg(ns, (d.reseaux || []).map(n => [n, n === 'linkedin' ? 'LinkedIn' : 'Instagram', n]), E.net, v => { E.net = v; const ta = $('#edText', el); swapText(ta, d.textes[v] || ''); const cp = $('#copyNet', el); if (cp) cp.lastChild.textContent = `Reprendre le texte ${v === 'linkedin' ? 'Instagram' : 'LinkedIn'}`; refreshSide(); });
   const cp = $('#copyNet', el); if (cp) cp.onclick = () => { const other = E.net === 'linkedin' ? 'instagram' : 'linkedin'; d.textes[E.net] = d.textes[other] || ''; swapText($('#edText', el), d.textes[E.net]); changed(); };
@@ -328,7 +329,7 @@ function drawFlow() {
   let actions = '';
   if (!c.id) actions = `<p class="muted small">Donnez un titre au contenu : il s'enregistre automatiquement.</p>`;
   else if (PRE_VALID.includes(c.statut) && c.statut !== 'validation' && cr) actions = `
-      <label class="field"><span>Étape</span><select class="input" id="stSel">${['idee', 'a_produire', 'redaction'].map(s => `<option value="${s}" ${s === c.statut ? 'selected' : ''}>${statutLabel(s)}</option>`).join('')}</select></label>
+      <p class="small muted">${c.statut === 'idee' ? 'Idée. Renseignez la date et l\'heure de diffusion : le contenu passera automatiquement à produire.' : `À produire${c.date_debut ? ', diffusion prévue le ' + fmtDT(c.date_debut) : ''}. Rédigez, puis envoyez en validation.`}</p>
       <button class="btn mag" id="toValid" style="width:100%;margin-top:12px">${ic('send')}Envoyer en validation</button>`;
   else if (c.statut === 'validation') actions = dir ? `<p class="small muted">Ce contenu attend votre décision.</p>
       <label class="field" style="margin-top:10px"><span>Commentaire <em>(obligatoire pour une demande de modification)</em></span><textarea class="input" id="valCom" style="min-height:80px"></textarea></label>
@@ -350,10 +351,10 @@ function drawFlow() {
     d.retour = ''; const s = await persist({ fields: { statut: 'validation' }, redraw: true, force: true });
     if (s) { await addJournal(s.id, 'version', 'Version envoyée en validation', { textes: s.data.textes, hashtags: s.data.hashtags, score: s.data.score }); await addJournal(s.id, 'action', 'Envoyé en validation'); toast('Envoyé à la direction pour validation', 'send'); }
   });
-  on('toBack', async () => { const s = await persist({ fields: { statut: 'redaction' }, redraw: true }); if (s) addJournal(s.id, 'action', 'Retiré de la validation'); });
+  on('toBack', async () => { const s = await persist({ fields: { statut: 'a_produire' }, redraw: true }); if (s) addJournal(s.id, 'action', 'Retiré de la validation'); });
   on('valOk', async () => {
     const com = $('#valCom', box).value.trim();
-    const s = await saveItem({ ...c, statut: c.date_debut && new Date(c.date_debut) > new Date() ? 'planifie' : 'a_planifier', data: { ...d, retour: '' } }).catch(() => null);
+    const s = await saveItem({ ...c, statut: 'a_planifier', data: { ...d, retour: '' } }).catch(() => null);
     if (!s) return; E.c = clone(s);
     await addJournal(s.id, 'version', 'Version validée', { textes: s.data.textes, hashtags: s.data.hashtags, score: s.data.score });
     await addJournal(s.id, 'action', 'Validé par la direction'); if (com) await addJournal(s.id, 'commentaire', com);
@@ -361,9 +362,9 @@ function drawFlow() {
   });
   on('valKo', async () => {
     const t = $('#valCom', box); const com = t.value.trim(); if (!com) { t.classList.add('bad'); t.focus(); toast('Précisez les modifications attendues', 'alert'); return; }
-    const s = await saveItem({ ...c, statut: 'redaction', data: { ...d, retour: com } }).catch(() => null); if (!s) return; E.c = clone(s);
+    const s = await saveItem({ ...c, statut: 'a_produire', data: { ...d, retour: com, retour_le: new Date().toISOString() } }).catch(() => null); if (!s) return; E.c = clone(s);
     await addJournal(s.id, 'action', 'Modifications demandées'); await addJournal(s.id, 'commentaire', com);
-    toast('Demande de modification envoyée'); draw();
+    toast('Demande de modification envoyée : le contenu repasse à produire', 'msg'); draw();
   });
   on('toPlan', async () => { const s = await persist({ fields: { statut: 'planifie' }, redraw: true }); if (s) { addJournal(s.id, 'action', 'Planifié'); toast('Contenu planifié', 'cal'); } });
   on('toPub', async () => { const s = await persist({ fields: { statut: 'publie', date_debut: c.date_debut || new Date().toISOString() }, redraw: true }); if (s) { addJournal(s.id, 'action', 'Publié'); toast('Bravo, contenu publié', 'trophy'); } });
@@ -374,6 +375,27 @@ function drawFlow() {
   on('dup', () => openDecline(c, E.ctx));
   on('arch', async () => { if (await confirmBox('Archiver ce contenu ?', 'Il disparaîtra du calendrier et du tableau. Vous pourrez le retrouver dans la recherche.', { ok: 'Archiver' })) { await saveItem({ ...c, statut: 'archive' }); addJournal(c.id, 'action', 'Archivé'); toast('Contenu archivé'); E.ctx.go(E.ctx.univ, 'creer', null, {}, true); } });
 }
+
+/* ---------- edit queue (selection from the board) ---------- */
+function queueBar() {
+  const c = E.c, ids = Q.ids.filter(id => getItem(id)); const i = c.id ? ids.indexOf(c.id) : -1; if (i < 0 || ids.length < 2) return '';
+  return `<div class="qbar tile" id="edQueue"><button class="btn ghost sm mag" data-q="-1" ${i === 0 ? 'disabled' : ''}>${ic('left')}Précédent</button>
+    <div class="qmid"><span class="label">Liste d'édition</span><b>${i + 1} sur ${ids.length}</b><div class="qdots">${ids.map((id, k) => `<button type="button" class="${k === i ? 'on' : k < i ? 'done' : ''}" data-qi="${k}" title="${esc((getItem(id) || {}).titre || '')}" aria-label="Contenu ${k + 1}"></button>`).join('')}</div></div>
+    <div class="btn-row"><button class="btn sm mag" data-q="1" ${i === ids.length - 1 ? 'disabled' : ''}>Suivant${ic('right')}</button><button class="icon-btn sm" data-qx title="Quitter la liste" aria-label="Quitter la liste">${ic('x')}</button></div></div>`;
+}
+async function queueGo(k) {
+  const ids = Q.ids.filter(id => getItem(id)); const id = ids[k]; if (!id || id === E.c.id) return;
+  if (saveT) { clearTimeout(saveT); saveT = null; if (!(isDirection() && S.role !== 'admin')) await persist(); }
+  const it = getItem(id); E.ctx.go(it.marque, 'creer', null, { id }, true);
+}
+function bindQueue() {
+  const q = $('#edQueue', E.el); if (!q) return;
+  q.onclick = e => { const ids = Q.ids.filter(id => getItem(id)), i = ids.indexOf(E.c.id);
+    const b = e.target.closest('[data-q]'); if (b && !b.disabled) return queueGo(i + Number(b.dataset.q));
+    const d = e.target.closest('[data-qi]'); if (d) return queueGo(Number(d.dataset.qi));
+    if (e.target.closest('[data-qx]')) { setQueue([]); q.remove(); toast('Liste d\'édition fermée', 'list'); } };
+}
+addEventListener('keydown', e => { if (!E || !E.el.isConnected || !$('#edQueue', E.el) || !e.altKey || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return; e.preventDefault(); const ids = Q.ids.filter(id => getItem(id)); queueGo(ids.indexOf(E.c.id) + (e.key === 'ArrowRight' ? 1 : -1)); });
 
 /* ---------- modals ---------- */
 function pickTemplate() {
@@ -409,14 +431,14 @@ export async function openComments(c) {
 }
 export function openDecline(c, ctx) {
   let sel = [c.marque];
-  const { el, close } = modal(`<div class="modal-head"><div><span class="label">Dupliquer</span><h2 style="margin-top:6px">Décliner ce contenu</h2><p>Une copie en rédaction est créée pour chaque marque choisie. Le texte reste à adapter à chaque univers.</p></div><button class="icon-btn" data-close aria-label="Fermer">${ic('x')}</button></div>
+  const { el, close } = modal(`<div class="modal-head"><div><span class="label">Dupliquer</span><h2 style="margin-top:6px">Décliner ce contenu</h2><p>Une copie, au stade idée, est créée pour chaque marque choisie. Le texte reste à adapter à chaque univers.</p></div><button class="icon-btn" data-close aria-label="Fermer">${ic('x')}</button></div>
     <div class="tagsel" id="dm">${BRAND_KEYS.map(b => `<button type="button" data-v="${b}" class="${sel.includes(b) ? 'on' : ''}">${esc(BRANDS[b].nom)}</button>`).join('')}</div>
     <div class="modal-foot"><button class="btn ghost" data-close>Annuler</button><button class="btn mag" id="dGo">${ic('copy')}Créer les copies</button></div>`);
   $('#dm', el).onclick = e => { const b = e.target.closest('button'); if (!b) return; const v = b.dataset.v; sel = sel.includes(v) ? sel.filter(x => x !== v) : [...sel, v]; b.classList.toggle('on', sel.includes(v)); };
   $('#dGo', el).onclick = async () => {
     if (!sel.length) { toast('Choisissez au moins une marque', 'alert'); return; }
     let last = null;
-    for (const m of sel) { last = await saveItem({ kind: 'contenu', marque: m, titre: c.titre + (m === c.marque ? ' (copie)' : ''), statut: 'redaction', date_debut: null, parent_id: c.id, data: { ...clone(c.data), retour: '', stats: {}, score: c.data.score } }); await addJournal(last.id, 'action', `Décliné depuis « ${c.titre} »`); }
+    for (const m of sel) { last = await saveItem({ kind: 'contenu', marque: m, titre: c.titre + (m === c.marque ? ' (copie)' : ''), statut: 'idee', date_debut: null, parent_id: c.id, data: { ...clone(c.data), retour: '', stats: {}, score: c.data.score } }); await addJournal(last.id, 'action', `Décliné depuis « ${c.titre} »`); }
     close(); toast(`${sel.length} copie${sel.length > 1 ? 's' : ''} créée${sel.length > 1 ? 's' : ''}`, 'copy');
     if (last) ctx.go(last.marque, 'creer', null, { id: last.id });
   };

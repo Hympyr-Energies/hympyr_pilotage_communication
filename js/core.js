@@ -32,10 +32,15 @@ export const BRANDS = {
 export const BRAND_KEYS = ['groupe', 'energies', 'transport', 'granules'];
 export const SUB_BRANDS = ['energies', 'transport', 'granules'];
 export const STATUTS = [
-  ['idee', 'Idée'], ['a_produire', 'À produire'], ['redaction', 'En rédaction'], ['validation', 'En validation'],
+  ['idee', 'Idée'], ['a_produire', 'À produire'], ['validation', 'En validation'],
   ['a_planifier', 'Validé, à planifier'], ['planifie', 'Planifié'], ['publie', 'Publié'], ['archive', 'Archivé']
 ];
-export const statutLabel = k => (STATUTS.find(s => s[0] === k) || [k, k])[1];
+export const statutLabel = k => k === 'redaction' ? 'À produire' : (STATUTS.find(s => s[0] === k) || [k, k])[1];
+/* automatic stage : an idea with a broadcast date and time becomes « à produire » ; the old « en rédaction » stage is merged into it */
+export function autoStatut(it) { if (!it || it.kind !== 'contenu') return it && it.statut; if (it.statut === 'redaction') return 'a_produire'; if (it.statut === 'idee' && it.date_debut) return 'a_produire'; return it.statut; }
+/* edit queue : contents selected on the board, edited one after the other */
+export const Q = { ids: (() => { try { return JSON.parse(sessionStorage.getItem('hc-queue') || '[]'); } catch (e) { return []; } })() };
+export function setQueue(ids) { Q.ids = ids || []; try { sessionStorage.setItem('hc-queue', JSON.stringify(Q.ids)); } catch (e) {} }
 export const PRE_VALID = ['idee', 'a_produire', 'redaction', 'validation'];
 export const TYPES = [
   ['publication', 'Publication', 'social'], ['carrousel', 'Carrousel', 'social'], ['video', 'Vidéo', 'social'], ['story', 'Story', 'social'], ['reel', 'Reel', 'social'],
@@ -94,6 +99,8 @@ export const I = {
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   inbox: '<path d="M3 13h5l2 3h4l2-3h5"/><path d="M5 5h14l2 8v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6z"/>',
   idea: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z"/>',
+  more: '<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>',
+  select: '<rect x="3.5" y="3.5" width="17" height="17" rx="4"/><path d="m8 12.5 3 3 5.5-6"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
   week: '<rect x="3" y="4.5" width="18" height="16.5" rx="2.5"/><path d="M9 4.5v16.5M15 4.5v16.5"/>',
   down: '<path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 20h16"/>',
@@ -152,8 +159,10 @@ export async function loadAll() {
   S.members = m.data || [];
   S.loaded = true; emit();
 }
-function normalize(it) { it.data = it.data || {}; return it; }
+function normalize(it) { it.data = it.data || {}; it.statut = autoStatut(it); return it; }
 export async function saveItem(item, { silent } = {}) {
+  const st = autoStatut(item), promoted = item.kind === 'contenu' && item.statut === 'idee' && st === 'a_produire';
+  if (st !== item.statut) item = { ...item, statut: st };
   const row = { kind: item.kind, marque: item.marque || null, titre: item.titre || null, statut: item.statut || null, date_debut: item.date_debut || null, date_fin: item.date_fin || null, data: item.data || {}, parent_id: item.parent_id || null };
   let res;
   if (item.id) res = await sb.from('comm_items').update(row).eq('id', item.id).select().single();
@@ -162,7 +171,7 @@ export async function saveItem(item, { silent } = {}) {
   const saved = normalize(res.data);
   const idx = S.items.findIndex(i => i.id === saved.id);
   if (idx > -1) S.items[idx] = saved; else S.items.push(saved);
-  emit(); return saved;
+  emit(); if (promoted && !silent) toast(`Date de diffusion fixée : « ${saved.titre || 'Sans titre'} » passe à produire`, 'board'); return saved;
 }
 export async function deleteItem(id) {
   const { error } = await sb.from('comm_items').delete().eq('id', id);
