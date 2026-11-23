@@ -5,9 +5,9 @@ import {
   $, $$, esc, S, byKind, getItem, contents, saveItem, deleteItem, addJournal, toast, modal, confirmBox, seg, ic, swap, ring, animateRings, animateBars, stagger,
   BRANDS, SUB_BRANDS, BRAND_KEYS, STATUTS, statutLabel, PRE_VALID, typeLabel, typeFamily, objLabel, cibleLabel, RESEAUX, TYPES,
   isoDay, fmtDate, fmtDT, fmtShort, startOfWeek, addDays, sameDay, holidays, settings, isDirection, canCreate, memberName, brandDot, pct, num, toLocalInput, fromLocalInput, Q, setQueue
-} from './core.js?v=6';
-import { scoreLabel } from './analysis.js?v=6';
-import { openComments, openHistory } from './editor.js?v=6';
+} from './core.js?v=7';
+import { scoreLabel } from './analysis.js?v=7';
+import { openComments, openHistory } from './editor.js?v=7';
 
 const bc = m => (BRANDS[m] || BRANDS.groupe).color;
 const scope = univ => univ === 'groupe' ? contents() : contents(univ);

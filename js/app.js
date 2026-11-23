@@ -4,11 +4,11 @@
 import {
   sb, $, $$, esc, root, EASE, RM, store, S, loadAll, byKind, getItem, contents, saveItem, addJournal, toast, modal, seg, segSet, setupInd, setupGlide, place, replaceInd,
   ic, animOut, stagger, setTheme, syncThemeLabel, logoHTML, BRANDS, BRAND_KEYS, statutLabel, fmtDT, fmtDate, isDirection, canCreate, brandDot, onChange
-} from './core.js?v=6';
-import { renderEditor } from './editor.js?v=6';
-import { renderModeles } from './templates.js?v=6';
-import { renderDashboard, renderCalendar, renderBoard, renderValidation, renderDemandes, renderInterne, demandFields, readDemand } from './views-main.js?v=6';
-import { renderAnalyser, renderComparer, renderPerformances, renderHashtags, renderPersonas, renderVisuels, renderCampagnes, renderEvenements, renderPrint, renderPresse, renderStats, renderBudget, renderRapports, renderReglages } from './views-more.js?v=6';
+} from './core.js?v=7';
+import { renderEditor } from './editor.js?v=7';
+import { renderModeles } from './templates.js?v=7';
+import { renderDashboard, renderCalendar, renderBoard, renderValidation, renderDemandes, renderInterne, demandFields, readDemand } from './views-main.js?v=7';
+import { renderAnalyser, renderComparer, renderPerformances, renderHashtags, renderPersonas, renderVisuels, renderCampagnes, renderEvenements, renderPrint, renderPresse, renderStats, renderBudget, renderRapports, renderReglages } from './views-more.js?v=7';
 
 const NAV = {
   groupe: [

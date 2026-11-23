@@ -1,7 +1,7 @@
 /* =========================================================
    ANALYSIS ENGINE : built-in rules, adjustable levels
    ========================================================= */
-import { esc, settings, byKind, OBJECTIFS } from './core.js?v=6';
+import { esc, settings, byKind, OBJECTIFS } from './core.js?v=7';
 
 export const CRITERES = [
   ['accroche', 'Accroche'], ['clarte', 'Clarté'], ['structure', 'Structure'], ['valeur', 'Valeur'],
@@ -34,6 +34,7 @@ const L = {
   cta: ['découvrez', 'contactez', 'demandez', 'réservez', 'inscrivez', 'téléchargez', 'partagez', 'commentez', 'cliquez', 'appelez', 'rejoignez', 'postulez', 'simulez', 'calculez', 'écrivez', 'dites-nous', 'abonnez', 'suivez', 'lisez', 'essayez', 'commandez', 'retrouvez', 'venez', 'rendez-vous', 'en savoir plus', 'lien en bio', 'votre avis'],
   vert: ['écologique', 'vert ', 'verte', 'neutre en carbone', 'zéro carbone', 'zéro émission', '100 % naturel', '100% naturel', 'respectueux de l\'environnement', 'bon pour la planète', 'durable', 'biodégradable', 'éco-responsable', 'écoresponsable', 'propre', 'sans impact', 'neutralité carbone', 'compensé', 'green']
 };
+export const CTA_WORDS = L.cta;
 const EMOJI = /\p{Extended_Pictographic}/u;
 const words = t => t.match(/[\p{L}\p{N}'’-]+/gu) || [];
 const sentences = t => t.split(/(?<=[.!?…])\s+|\n+/).map(s => s.trim()).filter(s => words(s).length);
@@ -43,11 +44,11 @@ const clamp = (v, a = 0, b = 100) => Math.max(a, Math.min(b, Math.round(v)));
 const near = (v, lo, hi, soft) => v >= lo && v <= hi ? 100 : clamp(100 - (v < lo ? (lo - v) : (v - hi)) / soft * 100);
 
 /* main entry : returns {scores, global, issues, stats, marks} */
-export function analyse({ texte = '', hashtags = [], reseau = 'linkedin', objectif = 'pedagogique', marque = 'groupe', lien = '' }) {
+export function analyse({ texte = '', hashtags = [], reseau = 'linkedin', objectif = 'pedagogique', marque = 'groupe', lien = '', accroche = null }) {
   const s = settings(); const sev = Number(s.severite) || 1; const seu = s.seuils; const net = seu[reseau] || seu.linkedin;
   const t = texte.trim(); const low = ' ' + t.toLowerCase().replace(/’/g, '\'') + ' ';
   const W = words(t), S = sentences(t), paras = t.split(/\n\s*\n/).filter(p => p.trim());
-  const first = (t.split('\n').find(l => l.trim()) || '').trim(); const firstW = words(first).length;
+  const first = (accroche != null && String(accroche).trim() ? String(accroche).replace(/^#+\s*/, '').split('\n')[0] : (t.split('\n').find(l => l.trim()) || '').replace(/^#+\s*/, '')).trim(); const firstW = words(first).length;
   const issues = []; const add = (crit, lv, msg) => issues.push({ crit, lv, msg });
   const sc = {};
   if (!W.length) {

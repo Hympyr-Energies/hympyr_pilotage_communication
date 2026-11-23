@@ -8,10 +8,10 @@
 import {
   $, $$, esc, clone, byKind, getItem, saveItem, deleteItem, toast, modal, confirmBox, ic, stagger, seg,
   BRANDS, BRAND_KEYS, TYPES, typeLabel, typeFamily, OBJECTIFS, objLabel, CIBLES, cibleLabel, RESEAUX, canCreate, brandDot
-} from './core.js?v=6';
+} from './core.js?v=7';
 
 const head = (lab, title, p = '', right = '') => `<div class="panel-head"><div><span class="label">${lab}</span><h2 style="margin-top:4px">${title}</h2>${p ? `<p>${p}</p>` : ''}</div>${right}</div>`;
-export const PLACEHOLDER = /\[[^\]\n]{1,80}\]/g;
+export const PLACEHOLDER = /\[[^\]\n]{1,80}\](?!\()/g;
 export const placeholders = txt => [...new Set((String(txt || '').match(PLACEHOLDER) || []))];
 
 /* normalise old (texte only) and new templates */
@@ -20,7 +20,7 @@ export function tplData(t) {
   return {
     type: d.type || 'publication', objectif: d.objectif || 'pedagogique', cible: d.cible || [], reseaux: d.reseaux && d.reseaux.length ? d.reseaux : ['linkedin'],
     textes: { linkedin: '', instagram: '', principal: '', ...(d.textes || {}), ...(d.textes ? {} : { linkedin: base, instagram: base, principal: base }) },
-    hashtags: d.hashtags || [], lien: d.lien || '', consignes: d.consignes || '', usages: d.usages || 0
+    hashtags: d.hashtags || [], lien: d.lien || '', consignes: d.consignes || '', usages: d.usages || 0, blocs: d.blocs || null
   };
 }
 export const templatesFor = marque => byKind('modele').filter(t => marque === 'groupe' || t.marque === 'groupe' || t.marque === marque)
@@ -29,7 +29,7 @@ export const templatesFor = marque => byKind('modele').filter(t => marque === 'g
 /* copy a template into a content (in place) */
 export function applyTemplate(c, t) {
   const d = tplData(t);
-  Object.assign(c.data, { type: d.type, objectif: d.objectif, cible: d.cible.length ? clone(d.cible) : c.data.cible, reseaux: clone(d.reseaux), textes: { ...c.data.textes, ...clone(d.textes) }, hashtags: clone(d.hashtags), lien: d.lien || c.data.lien, consignes: d.consignes, modele_id: t.id });
+  Object.assign(c.data, { type: d.type, objectif: d.objectif, cible: d.cible.length ? clone(d.cible) : c.data.cible, reseaux: clone(d.reseaux), textes: { ...c.data.textes, ...clone(d.textes) }, hashtags: clone(d.hashtags), lien: d.lien || c.data.lien, consignes: d.consignes, modele_id: t.id, blocs: d.blocs ? clone(d.blocs) : {} });
   if (!c.titre) c.titre = t.titre;
   const u = getItem(t.id); if (u && canCreate()) saveItem({ ...u, data: { ...u.data, usages: (u.data.usages || 0) + 1 } }, { silent: true }).catch(() => {});
   return c;
@@ -91,7 +91,7 @@ export function editTemplate(item, { onSaved } = {}) {
     if (!nets().some(k => (d.textes[k] || '').trim())) { X.classList.add('bad'); X.focus(); toast('Écrivez au moins la trame du texte', 'alert'); return; }
     const filled = nets().map(k => d.textes[k]).find(v => (v || '').trim()) || ''; nets().forEach(k => { if (!(d.textes[k] || '').trim()) d.textes[k] = filled; });
     const hashtags = $('#tH', el).value.split(/[\s,]+/).filter(Boolean).map(h => h.startsWith('#') ? h : '#' + h);
-    const out = { ...t, kind: 'modele', titre: n.value.trim(), marque: $('#tM', el).value, data: { ...(t.data || {}), type: d.type, objectif: $('#tO', el).value, cible: d.cible, reseaux: social() ? d.reseaux : [], textes: Object.fromEntries(nets().map(k => [k, d.textes[k] || ''])), hashtags, lien: $('#tL', el).value.trim(), consignes: $('#tK', el).value.trim(), usages: d.usages } };
+    const out = { ...t, kind: 'modele', titre: n.value.trim(), marque: $('#tM', el).value, data: { ...(t.data || {}), type: d.type, objectif: $('#tO', el).value, cible: d.cible, reseaux: social() ? d.reseaux : [], textes: Object.fromEntries(nets().map(k => [k, d.textes[k] || ''])), blocs: (t.data || {}).blocs && (t.data || {}).type === d.type && nets().every(k => ((t.data.textes || {})[k] || '') === (d.textes[k] || '')) ? t.data.blocs : null, hashtags, lien: $('#tL', el).value.trim(), consignes: $('#tK', el).value.trim(), usages: d.usages } };
     delete out.data.texte;
     try { const s = await saveItem(out); close(); toast(t.id ? 'Modèle mis à jour' : 'Modèle créé', 'layers'); onSaved && onSaved(s); } catch (e) {}
   };
@@ -103,7 +103,7 @@ export function editTemplate(item, { onSaved } = {}) {
 /* save the content being edited as a template */
 export function saveAsTemplate(c) {
   const d = c.data || {};
-  editTemplate({ kind: 'modele', marque: c.marque, titre: c.titre ? `Modèle : ${c.titre}` : '', data: { type: d.type, objectif: d.objectif, cible: d.cible || [], reseaux: d.reseaux || ['linkedin'], textes: clone(d.textes || {}), hashtags: clone(d.hashtags || []), lien: d.lien || '', consignes: d.consignes || '' } });
+  editTemplate({ kind: 'modele', marque: c.marque, titre: c.titre ? `Modèle : ${c.titre}` : '', data: { type: d.type, objectif: d.objectif, cible: d.cible || [], reseaux: d.reseaux || ['linkedin'], textes: clone(d.textes || {}), blocs: clone(d.blocs || {}), hashtags: clone(d.hashtags || []), lien: d.lien || '', consignes: d.consignes || '' } });
 }
 
 /* ---------- picker used in the editor ---------- */

@@ -101,6 +101,8 @@ export const I = {
   idea: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z"/>',
   more: '<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>',
   select: '<rect x="3.5" y="3.5" width="17" height="17" rx="4"/><path d="m8 12.5 3 3 5.5-6"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  down2: '<path d="M12 5v14M6 13l6 6 6-6"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
   week: '<rect x="3" y="4.5" width="18" height="16.5" rx="2.5"/><path d="M9 4.5v16.5M15 4.5v16.5"/>',
   down: '<path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 20h16"/>',

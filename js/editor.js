@@ -5,9 +5,10 @@ import {
   $, $$, esc, clone, S, byKind, getItem, saveItem, deleteItem, addJournal, journal, toast, modal, confirmBox, seg, segSet, ic, swap, animateRings,
   BRANDS, SUB_BRANDS, BRAND_KEYS, TYPES, typeLabel, typeFamily, RESEAUX, OBJECTIFS, objLabel, CIBLES, STATUTS, statutLabel, PRE_VALID,
   toLocalInput, fromLocalInput, fmtDT, fmtDate, isDirection, canCreate, memberName, settings, ring, stagger, uid, brandDot, Q, setQueue
-} from './core.js?v=6';
-import { analyse, radarSVG, animateRadar, scoreLabel, CRITERES } from './analysis.js?v=6';
-import { applyTemplate, pickTemplateFor, saveAsTemplate, placeholders } from './templates.js?v=6';
+} from './core.js?v=7';
+import { analyse, radarSVG, animateRadar, scoreLabel, CRITERES } from './analysis.js?v=7';
+import { applyTemplate, pickTemplateFor, saveAsTemplate, placeholders } from './templates.js?v=7';
+import { KINDS, struct, label, newBloc, ensureBlocs, restructure, compile, hookText, allText, fieldsText, fieldCheck, parseText, htmlDoc, openHtmlPreview } from './blocs.js?v=7';
 
 const blank = marque => ({ kind: 'contenu', marque, titre: '', statut: 'idee', date_debut: null, data: { type: 'publication', cible: ['professionnels'], objectif: 'pedagogique', reseaux: ['linkedin'], textes: { linkedin: '', instagram: '', principal: '' }, hashtags: [], lien: '', utm: true, visuels: [], campagne_id: '', interne: { canaux: [], lecture: false, lus: 0, total: 0 }, mentions_ok: false } });
 const slug = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
@@ -21,7 +22,7 @@ export function trackedLink(c, net) {
 }
 export function analyseContent(c, net) {
   const n = net || ((c.data.reseaux || [])[0]) || 'linkedin';
-  return analyse({ texte: textFor(c, n), hashtags: c.data.hashtags || [], reseau: n, objectif: c.data.objectif, marque: c.marque, lien: c.data.lien });
+  return analyse({ texte: textFor(c, n), hashtags: c.data.hashtags || [], reseau: n, objectif: c.data.objectif, marque: c.marque, lien: c.data.lien, accroche: hookText(c, isSocial(c) ? n : 'principal') });
 }
 
 let E = null; /* editor state */
@@ -44,6 +45,7 @@ function list() { return byKind('contenu', E.c.marque).filter(x => x.statut !== 
 
 function draw() {
   const c = E.c, d = c.data, ro = isDirection() && S.role !== 'admin';
+  ensureBlocs(c, E.net); const st = struct(d.type);
   const camps = byKind('campagne').filter(x => !x.data.marques || !x.data.marques.length || x.data.marques.includes(c.marque) || c.marque === 'groupe');
   const social = isSocial(c), fam = typeFamily(d.type);
   E.el.innerHTML = `
@@ -84,12 +86,18 @@ function draw() {
         </div>
       </div>
       <div class="panel glass" data-st>
-        <div class="panel-head"><div><span class="label">2 · Texte</span><h2 style="margin-top:4px">Rédiger</h2></div>
+        <div class="panel-head"><div><span class="label">2 · Texte</span><h2 style="margin-top:4px">Rédiger</h2><p>${esc(typeLabel(d.type))} : un champ par élément, évalué au fil de la saisie.</p></div>
           ${social && (d.reseaux || []).length > 1 ? `<div class="seg glass glide" id="netSeg"></div>` : ''}</div>
         <div class="netbox">
-          <textarea class="input" id="edText" rows="12" placeholder="Commencez par une accroche courte qui arrête la lecture." ${ro ? 'readonly' : ''} style="min-height:260px">${esc(d.textes[E.net] || '')}</textarea>
+          <div class="blocs" id="edBlocs">${blocsHTML()}</div>
+          ${!ro && st.add.length ? `<div class="badd"><span class="small muted">Ajouter</span>${st.add.map(k => `<button type="button" class="btn ghost sm" data-badd="${k}">${ic('plus')}${esc(label(d.type, k))}</button>`).join('')}</div>` : ''}
           <div class="counter" id="edCounter"></div>
-          ${social && (d.reseaux || []).length > 1 && !ro ? `<div class="btn-row"><button class="btn text sm" id="copyNet">${ic('copy')}Reprendre le texte ${E.net === 'linkedin' ? 'Instagram' : 'LinkedIn'}</button></div>` : ''}
+          <div class="btn-row">
+            <button class="btn ghost sm mag" id="edHtml">${ic('eye')}Aperçu HTML</button>
+            <button class="btn text sm" id="edCopyAll">${ic('copy')}Copier tous les champs</button>
+            ${ro ? '' : `<button class="btn text sm" id="edImport">${ic('file')}Coller un texte complet</button>`}
+            ${social && (d.reseaux || []).length > 1 && !ro ? `<button class="btn text sm" id="copyNet">${ic('copy')}Reprendre le texte ${E.net === 'linkedin' ? 'Instagram' : 'LinkedIn'}</button>` : ''}
+          </div>
         </div>
       </div>
       <div class="panel glass" data-st>
@@ -128,6 +136,41 @@ function draw() {
   </div>`;
   wire(); refreshSide(true); stagger(E.el);
 }
+const RO = () => isDirection() && S.role !== 'admin';
+function blocsHTML() {
+  const c = E.c, d = c.data, bl = d.blocs[E.net] || [], st = struct(d.type), ro = RO(), n = {};
+  return bl.map((b, i) => {
+    const K = KINDS[b.k]; const num = K.two ? ' ' + (n[b.k] = (n[b.k] || 0) + 1) : ''; const chk = fieldCheck(b, d.type, E.net);
+    const mov = st.add.includes(b.k);
+    return `<div class="bloc k-${b.k}" data-i="${i}">
+      <div class="bh"><span class="bk">${esc(label(d.type, b.k))}${num}</span><span class="bchk ${chk.lv}">${chk.lv === 'ok' ? ic('check') : chk.lv === 'warn' ? ic('alert') : ''}<span>${esc(chk.msg)}</span></span>
+        <span class="bact"><button type="button" class="icon-btn" data-bact="copy" title="Copier ce champ" aria-label="Copier ce champ">${ic('copy')}</button>${!ro && mov ? `<button type="button" class="icon-btn" data-bact="up" title="Monter" aria-label="Monter" ${i === 0 ? 'disabled' : ''}>${ic('up')}</button><button type="button" class="icon-btn" data-bact="down" title="Descendre" aria-label="Descendre" ${i === bl.length - 1 ? 'disabled' : ''}>${ic('down2')}</button><button type="button" class="icon-btn" data-bact="del" title="Retirer ce champ" aria-label="Retirer ce champ">${ic('x')}</button>` : ''}</span></div>
+      ${K.two ? `<input class="input bt" data-b="t" value="${esc(b.t || '')}" placeholder="${esc(K.tph)}" ${ro ? 'readonly' : ''}>` : ''}
+      ${K.line ? `<input class="input" data-b="v" value="${esc(b.v || '')}" placeholder="${esc(K.ph)}" ${ro ? 'readonly' : ''}>` : `<textarea class="input" data-b="v" rows="${K.rows || 3}" placeholder="${esc(K.ph)}" ${ro ? 'readonly' : ''}>${esc(b.v || '')}</textarea>`}
+    </div>`;
+  }).join('');
+}
+function grow(t) { if (t && t.tagName === 'TEXTAREA') { t.style.height = 'auto'; t.style.height = Math.min(900, t.scrollHeight + 2) + 'px'; } }
+function redrawBlocs(focusIdx) {
+  const box = $('#edBlocs', E.el); if (!box) return; box.innerHTML = blocsHTML(); $$('textarea', box).forEach(grow);
+  if (focusIdx != null) { const f = $(`.bloc[data-i="${focusIdx}"] [data-b]`, box); if (f) { f.focus(); f.closest('.bloc').animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 360, easing: 'cubic-bezier(.22,1,.36,1)' }); } }
+}
+function syncText() { E.c.data.textes[E.net] = compile(E.c, E.net); }
+function importText() {
+  const { el, close } = modal(`<div class="modal-head"><div><span class="label">Coller un texte complet</span><h2 style="margin-top:6px">Répartir un texte dans les champs</h2><p>Collez un texte rédigé ailleurs. Les titres en « # », « ## » et « ### », les lignes « Accroche : », « CTA : », « Diapositive 1 : », les encadrés en « > » et les hashtags sont reconnus. Le premier paragraphe devient l'accroche.</p></div><button class="icon-btn" data-close aria-label="Fermer">${ic('x')}</button></div>
+    <textarea class="input" id="imTxt" style="min-height:260px" placeholder="# Titre de l'article&#10;&#10;Chapô...&#10;&#10;## Première partie&#10;Texte..."></textarea>
+    <div class="modal-foot"><button class="btn ghost" data-close>Annuler</button><button class="btn mag" id="imGo">${ic('check')}Répartir dans les champs</button></div>`, { wide: true });
+  const ta = $('#imTxt', el); setTimeout(() => ta.focus(), 80);
+  $('#imGo', el).onclick = async () => {
+    if (!ta.value.trim()) { ta.classList.add('bad'); ta.focus(); return; }
+    const had = (E.c.data.blocs[E.net] || []).some(b => (b.v || b.t || '').trim());
+    if (had && !await confirmBox('Remplacer les champs actuels ?', 'Le texte collé remplace le contenu des champs de ce support.', { ok: 'Remplacer' })) return;
+    const r = parseText(ta.value, E.c.data.type); E.c.data.blocs[E.net] = r.blocs;
+    r.tags.forEach(h => { if (!E.c.data.hashtags.map(x => x.toLowerCase()).includes(h.toLowerCase())) E.c.data.hashtags.push(h); });
+    syncText(); close(); changed(); draw();
+    toast(`${r.blocs.filter(b => (b.v || b.t || '').trim()).length} champs remplis${r.tags.length ? `, ${r.tags.length} hashtags ajoutés` : ''}`, 'check');
+  };
+}
 function visRows() {
   const v = E.c.data.visuels || [];
   if (!v.length) return `<div class="empty" style="padding:16px"><p>Aucun visuel associé.</p></div>`;
@@ -149,8 +192,12 @@ function wire() {
   const st = $('#edSaveTpl', el); if (st) st.onclick = () => saveAsTemplate(E.c);
   phBanner(); bindQueue();
   const ns = $('#netSeg', el);
-  if (ns) seg(ns, (d.reseaux || []).map(n => [n, n === 'linkedin' ? 'LinkedIn' : 'Instagram', n]), E.net, v => { E.net = v; const ta = $('#edText', el); swapText(ta, d.textes[v] || ''); const cp = $('#copyNet', el); if (cp) cp.lastChild.textContent = `Reprendre le texte ${v === 'linkedin' ? 'Instagram' : 'LinkedIn'}`; refreshSide(); });
-  const cp = $('#copyNet', el); if (cp) cp.onclick = () => { const other = E.net === 'linkedin' ? 'instagram' : 'linkedin'; d.textes[E.net] = d.textes[other] || ''; swapText($('#edText', el), d.textes[E.net]); changed(); };
+  if (ns) seg(ns, (d.reseaux || []).map(n => [n, n === 'linkedin' ? 'LinkedIn' : 'Instagram', n]), E.net, v => { E.net = v; ensureBlocs(c, v); redrawBlocs(); const cp = $('#copyNet', el); if (cp) cp.lastChild.textContent = `Reprendre le texte ${v === 'linkedin' ? 'Instagram' : 'LinkedIn'}`; refreshSide(); });
+  const cp = $('#copyNet', el); if (cp) cp.onclick = () => { const other = E.net === 'linkedin' ? 'instagram' : 'linkedin'; d.blocs[E.net] = clone(ensureBlocs(c, other)); syncText(); redrawBlocs(); changed(); };
+  $$('#edBlocs textarea', el).forEach(grow);
+  const hp = $('#edHtml', el); if (hp) hp.onclick = () => openHtmlPreview(E.c, E.net);
+  const ca = $('#edCopyAll', el); if (ca) ca.onclick = () => navigator.clipboard.writeText(fieldsText(E.c, E.net)).then(() => toast('Tous les champs copiés', 'copy'));
+  const im = $('#edImport', el); if (im) im.onclick = importText;
   if (!el._wired) { el._wired = true; el.addEventListener('input', onInput); el.addEventListener('change', onInput); el.addEventListener('click', onClick); }
   const ti = $('#tagInput', el);
   if (ti) ti.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ',' || e.key === ' ') { e.preventDefault(); addTag(ti.value); ti.value = ''; } else if (e.key === 'Backspace' && !ti.value && d.hashtags.length) { d.hashtags.pop(); redrawTags(); changed(); } });
@@ -165,13 +212,14 @@ function wire() {
 function swapText(ta, v) { ta.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, fill: 'forwards' }).done.then(() => { ta.value = v; ta.getAnimations().forEach(a => a.cancel()); ta.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 360, easing: 'cubic-bezier(.22,1,.36,1)' }); }); }
 function onInput(e) {
   const t = e.target, c = E.c, d = c.data;
-  if (t.id === 'edText') { d.textes[E.net] = t.value; changed(); return; }
+  if (t.dataset.b) { const box = t.closest('.bloc'); const b = (d.blocs[E.net] || [])[+box.dataset.i]; if (!b || e.type === 'change') return; b[t.dataset.b] = t.value; grow(t); syncText();
+    const ck = fieldCheck(b, d.type, E.net), cel = $('.bchk', box); cel.className = 'bchk ' + ck.lv; cel.innerHTML = (ck.lv === 'ok' ? ic('check') : ck.lv === 'warn' ? ic('alert') : '') + `<span>${esc(ck.msg)}</span>`; changed(); return; }
   if (t.dataset.vis != null) { d.visuels[+t.dataset.vis][t.dataset.k] = t.value; if (t.dataset.k === 'alt') t.classList.toggle('bad', !t.value.trim()); changed(); return; }
   const f = t.dataset.f; if (!f || e.type === 'input' && (t.tagName === 'SELECT' || t.type === 'checkbox')) return;
   if (f === 'marque') { if (e.type === 'change') changeBrand(t.value, t); return; }
   if (f === 'titre') c.titre = t.value;
   else if (f === 'date_debut') c.date_debut = fromLocalInput(t.value);
-  else if (f === 'type') { const was = isSocial(c); d.type = t.value; if (was !== isSocial(c)) { if (!isSocial(c)) { d.textes.principal = d.textes.principal || d.textes.linkedin || ''; E.net = 'principal'; } else { d.textes.linkedin = d.textes.linkedin || d.textes.principal || ''; E.net = (d.reseaux || ['linkedin'])[0]; } changed(); draw(); return; } if (typeFamily(d.type) === 'interne' && !(d.cible || []).some(x => ['salaries', 'chauffeurs', 'direction'].includes(x))) d.cible = ['salaries']; changed(); draw(); return; }
+  else if (f === 'type') { const was = isSocial(c), from = E.net; ensureBlocs(c, from); d.type = t.value; if (was !== isSocial(c)) E.net = isSocial(c) ? (d.reseaux || ['linkedin'])[0] : 'principal'; restructure(c, from, E.net); if (was !== isSocial(c)) { changed(); draw(); return; } if (typeFamily(d.type) === 'interne' && !(d.cible || []).some(x => ['salaries', 'chauffeurs', 'direction'].includes(x))) d.cible = ['salaries']; changed(); draw(); return; }
   else if (f === 'campagne_id') d.campagne_id = t.value;
   else if (f === 'lien') d.lien = t.value.trim();
   else if (f === 'utm') d.utm = t.checked;
@@ -197,6 +245,20 @@ async function changeBrand(to, sel) {
 }
 function onClick(e) {
   const c = E.c, d = c.data;
+  const ba = e.target.closest('[data-bact]');
+  if (ba && !ba.disabled) {
+    const bl = d.blocs[E.net], i = +ba.closest('.bloc').dataset.i, b = bl[i], a = ba.dataset.bact;
+    if (a === 'copy') { const txt = KINDS[b.k].two ? [b.t, b.v].filter(x => (x || '').trim()).join('\n') : (b.v || ''); if (!txt.trim()) { toast('Ce champ est vide', 'alert'); return; } navigator.clipboard.writeText(txt).then(() => toast(`${label(d.type, b.k)} copié`, 'copy')); return; }
+    if (a === 'up' && i > 0) { [bl[i - 1], bl[i]] = [bl[i], bl[i - 1]]; syncText(); redrawBlocs(i - 1); changed(); return; }
+    if (a === 'down' && i < bl.length - 1) { [bl[i + 1], bl[i]] = [bl[i], bl[i + 1]]; syncText(); redrawBlocs(i + 1); changed(); return; }
+    if (a === 'del') { const box = ba.closest('.bloc'); box.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(.97)' }], { duration: 200, fill: 'forwards' }).done.then(() => { bl.splice(i, 1); syncText(); redrawBlocs(); changed(); }); return; }
+  }
+  const bd = e.target.closest('[data-badd]');
+  if (bd) {
+    const bl = d.blocs[E.net]; const tail = ['legende', 'cta'];
+    let at = bl.length; while (at > 0 && tail.includes(bl[at - 1].k)) at--;
+    bl.splice(at, 0, newBloc(bd.dataset.badd)); syncText(); redrawBlocs(at); changed(); return;
+  }
   const tag = e.target.closest('.tagsel[data-multi] button');
   if (tag && !tag.disabled) {
     const box = tag.parentElement, key = box.dataset.multi, v = tag.dataset.v;
@@ -276,7 +338,11 @@ function refreshSide(first) {
 function drawPreview(net) {
   const c = E.c, d = c.data, box = $('#pvPanel', E.el); if (!box) return;
   const nets = isSocial(c) ? (d.reseaux || []) : [];
-  if (!nets.length) { box.innerHTML = `<span class="label">Aperçu</span><p class="muted small" style="margin-top:6px">L'aperçu réseau concerne les contenus destinés à LinkedIn et Instagram.</p>`; return; }
+  if (!nets.length) {
+    let fr = $('iframe.pv-mini', box);
+    if (!fr) { box.innerHTML = `<div class="panel-head" style="margin-bottom:12px"><div><span class="label">Aperçu</span><h2 style="margin-top:4px">Rendu final</h2></div><button class="btn ghost sm mag" id="pvHtml">${ic('eye')}Aperçu HTML</button></div><iframe class="pv-mini" sandbox="allow-same-origin" title="Aperçu du rendu"></iframe>`; fr = $('iframe', box); fr.srcdoc = htmlDoc(c, 'principal', { mini: true }); $('#pvHtml', box).onclick = () => openHtmlPreview(E.c, 'principal'); return; }
+    clearTimeout(box._t); box._t = setTimeout(() => { fr.srcdoc = htmlDoc(E.c, 'principal', { mini: true }); }, 500); return;
+  }
   const v = nets.includes(box._pv) ? box._pv : net;
   const s = settings().seuils[v]; const txt = (d.textes[v] || '');
   const tags = d.hashtags.filter(h => !txt.includes(h)).join(' ');
@@ -347,7 +413,7 @@ function drawFlow() {
   on('toValid', async () => {
     const a = E.last; if (a.stats.emojis) { toast('Retirez les emojis avant l\'envoi : la charte les interdit', 'alert'); return; }
     if (!textFor(c, isSocial(c) ? (d.reseaux[0]) : 'principal').trim()) { toast('Rédigez le texte avant l\'envoi', 'alert'); return; }
-    const ph = placeholders((isSocial(c) ? d.reseaux : ['principal']).map(n => textFor(c, n)).join('\n')); if (ph.length) { toast(`Complétez d'abord ${ph.length > 1 ? 'les passages' : 'le passage'} ${ph.slice(0, 3).join(', ')}`, 'alert'); return; }
+    const ph = placeholders([...(isSocial(c) ? d.reseaux : ['principal']).map(n => textFor(c, n)), ...(isSocial(c) ? d.reseaux : ['principal']).map(n => ((d.blocs || {})[n] || []).map(b => (b.t || '') + '\n' + (b.v || '')).join('\n'))].join('\n')); if (ph.length) { toast(`Complétez d'abord ${ph.length > 1 ? 'les passages' : 'le passage'} ${ph.slice(0, 3).join(', ')}`, 'alert'); return; }
     d.retour = ''; const s = await persist({ fields: { statut: 'validation' }, redraw: true, force: true });
     if (s) { await addJournal(s.id, 'version', 'Version envoyée en validation', { textes: s.data.textes, hashtags: s.data.hashtags, score: s.data.score }); await addJournal(s.id, 'action', 'Envoyé en validation'); toast('Envoyé à la direction pour validation', 'send'); }
   });
@@ -402,7 +468,7 @@ function pickTemplate() {
   pickTemplateFor(E.c, t => { applyTemplate(E.c, t); E.net = isSocial(E.c) ? (E.c.data.reseaux || ['linkedin'])[0] : 'principal'; changed(); draw(); toast('Modèle appliqué. Complétez les passages entre crochets.', 'layers'); });
 }
 function phBanner() {
-  const box = $('#edPh', E.el); if (!box) return; const p = placeholders(Object.values(E.c.data.textes || {}).join('\n'));
+  const box = $('#edPh', E.el); if (!box) return; const p = placeholders(allText(E.c));
   box.innerHTML = p.length ? `<div class="tile" style="margin-top:14px;padding:10px 14px;display:flex;gap:10px;align-items:center;border-color:color-mix(in srgb,var(--warn) 50%,transparent)"><span class="chip warn">${ic('alert')}${p.length} à compléter</span><span class="small" style="min-width:0;overflow-wrap:anywhere">${esc(p.slice(0, 6).join('  '))}${p.length > 6 ? '…' : ''}</span></div>` : '';
 }
 async function pickVisual() {
