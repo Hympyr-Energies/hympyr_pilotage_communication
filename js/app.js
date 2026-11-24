@@ -280,12 +280,8 @@ $('#resetForm').addEventListener('submit', async e => {
   if (error) { setMsg(msg, 'Mise à jour impossible. Demandez un nouveau lien.'); return; }
   $('#resetForm').hidden = true; $('#loginForm').hidden = false; const { data } = await sb.auth.getSession(); if (data.session) enterApp(data.session);
 });
-$('#logoutBtn').onclick = async () => {
-  const app = $('#app'); await app.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 280, fill: 'forwards' }).done;
-  S.user = null; S.items = [];
-  await sb.auth.signOut();   // ferme la session de tous les outils Hympyr
-  location.replace(versPortail());
-};
+// Retour à l'accueil du portail, session conservée : la déconnexion se fait au portail, pour tous les outils à la fois.
+$('#logoutBtn').onclick = () => { location.assign(versPortail()); };
 $('#themeBtn').onclick = () => setTheme(root.dataset.theme === 'dark' ? 'light' : 'dark');
 $('#bellBtn').onclick = toggleBell;
 $('#searchBtn').onclick = openSearch;
