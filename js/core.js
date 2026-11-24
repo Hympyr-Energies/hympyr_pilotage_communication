@@ -4,7 +4,7 @@
 export const SB_URL = 'https://cmvkijtlkzfwnzipgstc.supabase.co';
 export const SB_KEY = 'sb_publishable_Q8HVlAGCLlpF5P3Gqsa_9g_fKDDD0bZ';
 export let sb = null;
-try { sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }); } catch (e) { sb = null; }
+try { sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } }); } catch (e) { sb = null; }
 
 export const $ = (s, r = document) => r.querySelector(s);
 export const $$ = (s, r = document) => [...r.querySelectorAll(s)];
