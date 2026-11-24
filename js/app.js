@@ -208,6 +208,24 @@ function showPublicForm() {
 }
 
 /* ---------- auth ---------- */
+/* Connexion unique : la page de connexion est celle du portail Hympyr, qui ramène ici une fois connecté (?retour=…).
+   Même origine et même client supabase-js : la session ouverte au portail vaut pour cet outil. */
+const PORTAIL_URL = 'https://hympyr-energies.github.io/portail/', OUTIL = 'pilotage_communication';
+const versPortail = (params = {}) => { const u = new URL(PORTAIL_URL); Object.entries(params).forEach(([k, v]) => { if (v) u.searchParams.set(k, v); }); return u.href; };
+/* Pas de session : direction le portail. Renvoie false (connexion locale affichée en secours) si l'on en revient sans session
+   depuis moins de 20 s, pour ne jamais tourner en boucle entre les deux pages. */
+function allerAuPortail() {
+  const k = 'hym.redirection.' + OUTIL; let d = 0;
+  try { d = +sessionStorage.getItem(k) || 0; sessionStorage.setItem(k, String(Date.now())); } catch (e) {}
+  if (Date.now() - d < 20000) return false;
+  location.replace(versPortail({ retour: location.href, outil: OUTIL })); return true;
+}
+/* Ancien lien « mot de passe oublié » arrivé ici : le nouveau mot de passe se choisit au portail. */
+function recuperationVersPortail() {
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.get('type') !== 'recovery' || !h.get('access_token')) return false;
+  location.replace(PORTAIL_URL + location.hash); return true;
+}
 const setMsg = (el, t, k = 'err') => { el.className = 'msg ' + k; el.textContent = t; };
 function showLogin() {
   $('#app').hidden = true; $('#publicReq').hidden = true; const l = $('#login'); l.hidden = false;
@@ -219,7 +237,8 @@ async function memberRole() {
 }
 async function enterApp(session) {
   S.user = session.user; S.role = await memberRole();
-  if (!S.role) { await sb.auth.signOut(); showLogin(); setMsg($('#loginMsg'), 'Ce compte n\'a pas accès à l\'outil communication. Demandez à un administrateur de vous ajouter.'); return; }
+  // Pas membre : on garde la session (elle vaut pour les autres outils) et le portail explique le refus
+  if (!S.role) { S.user = null; location.replace(versPortail({ outil: OUTIL, refus: '1' })); return; }
   try { await loadAll(); } catch (e) { showLogin(); setMsg($('#loginMsg'), 'Chargement des données impossible. Rechargez la page.'); return; }
   const me = S.members.find(m => m.email.toLowerCase() === S.user.email.toLowerCase()); S.nom = me && me.nom || S.user.email;
   const l = $('#login'); if (!l.hidden) { await $('#loginCard').animate([{ opacity: 1 }, { opacity: 0, transform: 'translateY(-10px) scale(.98)' }], { duration: 240, fill: 'forwards' }).done; l.hidden = true; $('#loginCard').getAnimations().forEach(a => a.cancel()); }
@@ -263,7 +282,9 @@ $('#resetForm').addEventListener('submit', async e => {
 });
 $('#logoutBtn').onclick = async () => {
   const app = $('#app'); await app.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 280, fill: 'forwards' }).done;
-  await sb.auth.signOut(); S.user = null; S.items = []; app.getAnimations().forEach(a => a.cancel()); history.replaceState(null, '', location.pathname); showLogin();
+  S.user = null; S.items = [];
+  await sb.auth.signOut();   // ferme la session de tous les outils Hympyr
+  location.replace(versPortail());
 };
 $('#themeBtn').onclick = () => setTheme(root.dataset.theme === 'dark' ? 'light' : 'dark');
 $('#bellBtn').onclick = toggleBell;
@@ -278,9 +299,13 @@ onChange(() => updateBell());
 (async function boot() {
   syncThemeLabel();
   if (location.hash === '#demande') { showPublicForm(); return; }
+  if (recuperationVersPortail()) return;
   if (!sb) { showLogin(); setMsg($('#loginMsg'), 'Service de connexion indisponible. Vérifiez votre connexion internet.'); return; }
-  sb.auth.onAuthStateChange(ev => { if (ev === 'PASSWORD_RECOVERY') { $('#app').hidden = true; $('#login').hidden = false; $('#loginForm').hidden = true; $('#resetForm').hidden = false; $('#loginTitle').textContent = 'Nouveau mot de passe'; $('#loginLead').textContent = 'Choisissez votre nouveau mot de passe.'; } });
+  sb.auth.onAuthStateChange(ev => {
+    // Déconnexion depuis le portail, un autre outil ou un autre onglet : on masque l'outil
+    if (ev === 'SIGNED_OUT' && S.user) { S.user = null; S.items = []; if (!allerAuPortail()) showLogin(); return; }
+    if (ev === 'PASSWORD_RECOVERY') { $('#app').hidden = true; $('#login').hidden = false; $('#loginForm').hidden = true; $('#resetForm').hidden = false; $('#loginTitle').textContent = 'Nouveau mot de passe'; $('#loginLead').textContent = 'Choisissez votre nouveau mot de passe.'; } });
   const { data } = await sb.auth.getSession();
-  if (data.session) enterApp(data.session); else showLogin();
+  if (data.session) enterApp(data.session); else if (!allerAuPortail()) showLogin();
 })();
 export { ctx, go };
